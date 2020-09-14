@@ -12,7 +12,7 @@ vars = {
     'https://chromium.googlesource.com',
 
   'electron_git':
-    'https://github.com/electron',
+    'https://github.com/Good-WarWolf/electron',
 }
 
 deps = {
