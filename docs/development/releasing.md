@@ -8,19 +8,27 @@ upload an Electron release. Contact a team member for more
 information.
 
 There are a handful of `*_TOKEN` environment variables needed by the release
-scripts. Once you've generated these per-user tokens, you may want to keep
-them in a local file that you can `source` when starting a release.
+scripts:
+
 * `ELECTRON_GITHUB_TOKEN`:
-Create as described at https://github.com/settings/tokens/new,
-giving the token repo access scope.
+Create this by visiting https://github.com/settings/tokens/new?scopes=repo
 * `APPVEYOR_TOKEN`:
 Create a token from https://windows-ci.electronjs.org/api-token
 If you don't have an account, ask a team member to add you.
 * `CIRCLE_TOKEN`:
 Create a token from "Personal API Tokens" at https://circleci.com/account/api
 * `VSTS_TOKEN`:
-Create a Personal Access Token at https://github.visualstudio.com/_usersSettings/tokens
+Create a Personal Access Token at https://github.visualstudio.com/_usersSettings/tokens or https://github.visualstudio.com/_details/security/tokens
 with the scope of `Build (read and execute)`.
+* `ELECTRON_S3_BUCKET`:
+* `ELECTRON_S3_ACCESS_KEY`:
+* `ELECTRON_S3_SECRET_KEY`:
+If you don't have these, ask a team member to help you.
+
+Once you've generated these tokens, put them in a `.env` file in the root directory
+of the project. This file is gitignored, and will be loaded into the 
+environment by the release scripts.
+
 
 ## Determine which branch to release from
 
@@ -65,7 +73,7 @@ npm run prepare-release -- minor
 ```
 ### Patch version change
 ```sh
-npm run prepare-release -- patch
+npm run prepare-release -- patch --stable
 ```
 ### Beta version change
 ```sh
@@ -204,6 +212,10 @@ release notes.
 ```sh
 $ npm run release -- --validateRelease
 ```
+Note, if you need to run `--validateRelease` more than once to check the assets,
+run it as above the first time, then `node ./script/release.js --validateRelease`
+for subsequent calls so that you don't have to rebuild each time you want to
+check the assets.
 
 ## Publish the release
 
@@ -231,20 +243,35 @@ Removing old .npmrc (default)
 Activating .npmrc "electron"
 ```
 
-The Electron account's credentials are kept by GitHub.
-"Electron - NPM" for the URL "https://www.npmjs.com/login".
+The Electron account's credentials are kept by GitHub in  a password manager.
+You'll also need to have access to an 2FA authenticator app with the appropriate OTP generator code to log in.
 ```sh
 $ npm login
-Username: electron
-Password:
+Username: electron-nightly
+Password: <This can be found under NPM Electron Nightly on LastPass>
 Email: (this IS public) electron@github.com
 ```
 
-Publish the release to npm.
+Publish the release to npm. Before running this you'll need to have set `ELECTRON_NPM_OTP` as an environment variable using a code from the aforementioned 2FA authenticator app.
 ```sh
 $ npm whoami
-electron
+electron-nightly
 $ npm run publish-to-npm
+```
+
+After publishing, you can check the `latest` release:
+```sh
+$ npm dist-tag ls electron
+```
+
+If for some reason `npm run publish-to-npm` fails,
+you can tag the release manually:
+```sh
+$ npm dist-tag add electron@<version> <tag>
+```
+e.g.:
+```sh
+$ npm dist-tag add electron@2.0.0 latest
 ```
 
 [the releases page]: https://github.com/electron/electron/releases
@@ -276,7 +303,7 @@ node script/ci-release-build.js --ci=AppVeyor --ghRelease TARGET_BRANCH
 ```
 
 Additionally you can pass a job name to the script to run an individual job, eg:
-````sh
+```sh
 node script/ci-release-build.js --ci=AppVeyor --ghRelease --job=electron-x64 TARGET_BRANCH
 ```
 
@@ -293,16 +320,23 @@ Then manually create distributions for each platform and upload them:
 
 ```sh
 # Checkout the version to re-upload.
-git checkout vTHE.RELEASE.VERSION
+git checkout vX.Y.Z
 
-# Do release build, specifying one target architecture.
-./script/bootstrap.py --target_arch [arm|x64|ia32]
-./script/build.py -c R
-./script/create-dist.py
+# Create release build
+gn gen out/Release --args="import(\"//electron/build/args/release.gn\") $GN_EXTRA_ARGS"
 
-# Explicitly allow overwritting a published release.
+# To compile for specific arch, instead set
+gn gen out/Release-<TARGET_ARCH> --args='import(\"//electron/build/args/release.gn\") target_cpu = "[arm|x64|ia32]"'
+
+# Build by running ninja with the electron target
+ninja -C out/Release electron
+ninja -C out/Release electron:dist_zip
+
+# Explicitly allow overwriting a published release.
 ./script/upload.py --overwrite
 ```
+
+Allowable values for [target_cpu](https://gn.googlesource.com/gn/+/master/docs/reference.md#built_in-predefined-variables-target_cpu_the-desired-cpu-architecture-for-the-build-possible-values) and [target_os](https://gn.googlesource.com/gn/+/master/docs/reference.md#built_in-predefined-variables-target_os_the-desired-operating-system-for-the-build-possible-values).
 
 After re-uploading all distributions, publish again to upload the checksum
 file:

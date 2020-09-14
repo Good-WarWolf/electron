@@ -14,7 +14,7 @@ See [`Menu`](menu.md) for examples.
     * `menuItem` MenuItem
     * `browserWindow` [BrowserWindow](browser-window.md)
     * `event` Event
-  * `role` String (optional) - Define the action of the menu item, when specified the
+  * `role` String (optional) - Can be `undo`, `redo`, `cut`, `copy`, `paste`, `pasteandmatchstyle`, `delete`, `selectall`, `reload`, `forcereload`, `toggledevtools`, `resetzoom`, `zoomin`, `zoomout`, `togglefullscreen`, `window`, `minimize`, `close`, `help`, `about`, `services`, `hide`, `hideothers`, `unhide`, `quit`, `startspeaking`, `stopspeaking`, `close`, `minimize`, `zoom`, `front`, `appMenu`, `fileMenu`, `editMenu`, `viewMenu` or `windowMenu` - Define the action of the menu item, when specified the
     `click` property will be ignored. See [roles](#roles).
   * `type` String (optional) - Can be `normal`, `separator`, `submenu`, `checkbox` or
     `radio`.
@@ -29,14 +29,24 @@ See [`Menu`](menu.md) for examples.
     menu items.
   * `registerAccelerator` Boolean (optional) - If false, the accelerator won't be registered
     with the system, but it will still be displayed. Defaults to true.
-  * `submenu` (MenuItemConstructorOptions[] | [Menu](menu.md)) (optional) - Should be specified for `submenu` type menu items. If
-    `submenu` is specified, the `type: 'submenu'` can be omitted. If the value
-    is not a [`Menu`](menu.md) then it will be automatically converted to one using
+  * `submenu` (MenuItemConstructorOptions[] | [Menu](menu.md)) (optional) - Should be specified
+    for `submenu` type menu items. If `submenu` is specified, the `type: 'submenu'` can be omitted.
+    If the value is not a [`Menu`](menu.md) then it will be automatically converted to one using
     `Menu.buildFromTemplate`.
   * `id` String (optional) - Unique within a single menu. If defined then it can be used
     as a reference to this item by the position attribute.
-  * `position` String (optional) - This field allows fine-grained definition of the
-    specific location within a given menu.
+  * `before` String[] (optional) - Inserts this item before the item with the specified label. If
+    the referenced item doesn't exist the item will be inserted at the end of  the menu. Also implies
+    that the menu item in question should be placed in the same “group” as the item.
+  * `after` String[] (optional) - Inserts this item after the item with the specified label. If the
+    referenced item doesn't exist the item will be inserted at the end of
+    the menu.
+  * `beforeGroupContaining` String[] (optional) - Provides a means for a single context menu to declare
+    the placement of their containing group before the containing group of the item
+    with the specified label.
+  * `afterGroupContaining` String[] (optional) - Provides a means for a single context menu to declare
+    the placement of their containing group after the containing group of the item
+    with the specified label.
 
 ### Roles
 
@@ -48,6 +58,9 @@ The built-in `role` behavior will give the best native experience.
 
 The `label` and `accelerator` values are optional when using a `role` and will
 default to appropriate values for each platform.
+
+Every menu item must have either a `role`, `label`, or in the case of a separator
+a `type`.
 
 The `role` property can have following values:
 
@@ -61,19 +74,22 @@ The `role` property can have following values:
 * `delete`
 * `minimize` - Minimize current window.
 * `close` - Close current window.
-* `quit`- Quit the application.
+* `quit` - Quit the application.
 * `reload` - Reload the current window.
 * `forceReload` - Reload the current window ignoring the cache.
 * `toggleDevTools` - Toggle developer tools in the current window.
-* `toggleFullScreen`- Toggle full screen mode on the current window.
+* `toggleFullScreen` - Toggle full screen mode on the current window.
 * `resetZoom` - Reset the focused page's zoom level to the original size.
 * `zoomIn` - Zoom in the focused page by 10%.
 * `zoomOut` - Zoom out the focused page by 10%.
+* `fileMenu` - Whole default "File" menu (Close / Quit)
 * `editMenu` - Whole default "Edit" menu (Undo, Copy, etc.).
-* `windowMenu` - Whole default "Window" menu (Minimize, Close, etc.).
+* `viewMenu` - Whole default "View" menu (Reload, Toggle Developer Tools, etc.)
+* `windowMenu` - Whole default "Window" menu (Minimize, Zoom, etc.).
 
 The following additional roles are available on _macOS_:
 
+* `appMenu` - Whole default "App" menu (About, Services, etc.)
 * `about` - Map to the `orderFrontStandardAboutPanel` action.
 * `hide` - Map to the `hide` action.
 * `hideOthers` - Map to the `hideOtherApplications` action.
@@ -89,7 +105,7 @@ The following additional roles are available on _macOS_:
 * `moveTabToNewWindow` - Map to the `moveTabToNewWindow` action.
 * `window` - The submenu is a "Window" menu.
 * `help` - The submenu is a "Help" menu.
-* `services` - The submenu is a "Services" menu.
+* `services` - The submenu is a ["Services"](https://developer.apple.com/documentation/appkit/nsapplication/1428608-servicesmenu?language=objc) menu. This is only intended for use in the Application Menu and is *not* the same as the "Services" submenu used in context menus in macOS apps, which is not implemented in Electron.
 * `recentDocuments` - The submenu is an "Open Recent" menu.
 * `clearRecentDocuments` - Map to the `clearRecentDocuments` action.
 
@@ -102,6 +118,50 @@ Lowercase `role`, e.g. `toggledevtools`, is still supported.
 ### Instance Properties
 
 The following properties are available on instances of `MenuItem`:
+
+#### `menuItem.id`
+
+A `String` indicating the item's unique id, this property can be
+dynamically changed.
+
+#### `menuItem.label`
+
+A `String` indicating the item's visible label, this property can be
+dynamically changed.
+
+#### `menuItem.click`
+
+A `Function` that is fired when the MenuItem receives a click event.
+It can be called with `menuItem.click(event, focusedWindow, focusedWebContents)`.
+* `event` Event
+* `focusedWindow` [BrowserWindow](browser-window.md)
+* `focusedWebContents` [WebContents](web-contents.md)
+
+#### `menuItem.submenu`
+
+A `Menu` (optional) containing the menu
+item's submenu, if present.
+
+#### `menuItem.type`
+
+A `String` indicating the type of the item.
+
+#### `menuItem.role`
+
+A `String` (optional) indicating the item's role, if set. Can be `undo`, `redo`, `cut`, `copy`, `paste`, `pasteandmatchstyle`, `delete`, `selectall`, `reload`, `forcereload`, `toggledevtools`, `resetzoom`, `zoomin`, `zoomout`, `togglefullscreen`, `window`, `minimize`, `close`, `help`, `about`, `services`, `hide`, `hideothers`, `unhide`, `quit`, `startspeaking`, `stopspeaking`, `close`, `minimize`, `zoom`, `front`, `appMenu`, `fileMenu`, `editMenu`, `viewMenu` or `windowMenu`
+
+#### `menuItem.accelerator`
+
+A `String` (optional) indicating the item's accelerator, if set.
+
+#### `menuItem.icon`
+
+A `NativeImage | String` (optional) indicating the
+item's icon, if set.
+
+#### `menuItem.sublabel`
+
+A `String` indicating the item's sublabel, this property can be dynamically changed.
 
 #### `menuItem.enabled`
 
@@ -126,10 +186,15 @@ will turn off that property for all adjacent items in the same menu.
 
 You can add a `click` function for additional behavior.
 
-#### `menuItem.label`
+#### `menuItem.registerAccelerator`
 
-A `String` representing the menu items visible label.
+A `Boolean` indicating if the accelerator should be registered with the
+system or just displayed, this property can be dynamically changed.
 
-#### `menuItem.click`
+#### `menuItem.commandId`
 
-A `Function` that is fired when the MenuItem receives a click event.
+A `Number` indicating an item's sequential unique id.
+
+#### `menuItem.menu`
+
+A `Menu` that the item is a part of.

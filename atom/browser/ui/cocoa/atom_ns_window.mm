@@ -23,7 +23,6 @@ bool ScopedDisableResize::disable_resize_ = false;
 @synthesize enableLargerThanScreen;
 @synthesize disableAutoHideCursor;
 @synthesize disableKeyOrMainWindow;
-@synthesize windowButtonsOffset;
 @synthesize vibrantView;
 
 - (id)initWithShell:(atom::NativeWindowMac*)shell
@@ -130,78 +129,6 @@ bool ScopedDisableResize::disable_resize_ = false;
   return !self.disableKeyOrMainWindow;
 }
 
-- (void)enableWindowButtonsOffset {
-  auto closeButton = [self standardWindowButton:NSWindowCloseButton];
-  auto miniaturizeButton =
-      [self standardWindowButton:NSWindowMiniaturizeButton];
-  auto zoomButton = [self standardWindowButton:NSWindowZoomButton];
-
-  [closeButton setPostsFrameChangedNotifications:YES];
-  [miniaturizeButton setPostsFrameChangedNotifications:YES];
-  [zoomButton setPostsFrameChangedNotifications:YES];
-
-  windowButtonsInterButtonSpacing_ =
-      NSMinX([miniaturizeButton frame]) - NSMaxX([closeButton frame]);
-
-  auto center = [NSNotificationCenter defaultCenter];
-
-  [center addObserver:self
-             selector:@selector(adjustCloseButton:)
-                 name:NSViewFrameDidChangeNotification
-               object:closeButton];
-
-  [center addObserver:self
-             selector:@selector(adjustMiniaturizeButton:)
-                 name:NSViewFrameDidChangeNotification
-               object:miniaturizeButton];
-
-  [center addObserver:self
-             selector:@selector(adjustZoomButton:)
-                 name:NSViewFrameDidChangeNotification
-               object:zoomButton];
-}
-
-- (void)adjustCloseButton:(NSNotification*)notification {
-  [self adjustButton:[notification object] ofKind:NSWindowCloseButton];
-}
-
-- (void)adjustMiniaturizeButton:(NSNotification*)notification {
-  [self adjustButton:[notification object] ofKind:NSWindowMiniaturizeButton];
-}
-
-- (void)adjustZoomButton:(NSNotification*)notification {
-  [self adjustButton:[notification object] ofKind:NSWindowZoomButton];
-}
-
-- (void)adjustButton:(NSButton*)button ofKind:(NSWindowButton)kind {
-  NSRect buttonFrame = [button frame];
-  NSRect frameViewBounds = [[self frameView] bounds];
-  NSPoint offset = self.windowButtonsOffset;
-
-  buttonFrame.origin = NSMakePoint(
-      offset.x, (NSHeight(frameViewBounds) - NSHeight(buttonFrame) - offset.y));
-
-  switch (kind) {
-    case NSWindowZoomButton:
-      buttonFrame.origin.x += NSWidth(
-          [[self standardWindowButton:NSWindowMiniaturizeButton] frame]);
-      buttonFrame.origin.x += windowButtonsInterButtonSpacing_;
-      // fallthrough
-    case NSWindowMiniaturizeButton:
-      buttonFrame.origin.x +=
-          NSWidth([[self standardWindowButton:NSWindowCloseButton] frame]);
-      buttonFrame.origin.x += windowButtonsInterButtonSpacing_;
-      // fallthrough
-    default:
-      break;
-  }
-
-  BOOL didPost = [button postsBoundsChangedNotifications];
-  [button setPostsFrameChangedNotifications:NO];
-  [button setFrame:buttonFrame];
-  [button setPostsFrameChangedNotifications:didPost];
-}
-
 - (NSView*)frameView {
   return [[self contentView] superview];
 }
@@ -224,17 +151,21 @@ bool ScopedDisableResize::disable_resize_ = false;
 
 // Custom window button methods
 
-- (BOOL)windowShouldClose:(id)sender { return YES; }
+- (BOOL)windowShouldClose:(id)sender {
+  return YES;
+}
 
 - (void)performClose:(id)sender {
   if (shell_->title_bar_style() ==
       atom::NativeWindowMac::CUSTOM_BUTTONS_ON_HOVER) {
     [[self delegate] windowShouldClose:self];
   } else if (shell_->IsSimpleFullScreen()) {
-    if([[self delegate] respondsToSelector:@selector(windowShouldClose:)]) {
-        if(![[self delegate] windowShouldClose:self]) return;
-    } else if([self respondsToSelector:@selector(windowShouldClose:)]) {
-        if(![self windowShouldClose:self]) return;
+    if ([[self delegate] respondsToSelector:@selector(windowShouldClose:)]) {
+      if (![[self delegate] windowShouldClose:self])
+        return;
+    } else if ([self respondsToSelector:@selector(windowShouldClose:)]) {
+      if (![self windowShouldClose:self])
+        return;
     }
     [self close];
   } else {
@@ -243,8 +174,14 @@ bool ScopedDisableResize::disable_resize_ = false;
 }
 
 - (void)toggleFullScreenMode:(id)sender {
-  if (shell_->simple_fullscreen())
-    shell_->SetSimpleFullScreen(!shell_->IsSimpleFullScreen());
+  bool is_simple_fs = shell_->IsSimpleFullScreen();
+  bool always_simple_fs = shell_->always_simple_fullscreen();
+
+  // If we're in simple fullscreen mode and trying to exit it
+  // we need to ensure we exit it properly to prevent a crash
+  // with NSWindowStyleMaskTitled mode
+  if (is_simple_fs || always_simple_fs)
+    shell_->SetSimpleFullScreen(!is_simple_fs);
   else
     [super toggleFullScreen:sender];
 }

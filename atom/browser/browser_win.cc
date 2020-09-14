@@ -11,6 +11,7 @@
 #include <shobjidl.h>
 
 #include "atom/browser/ui/win/jump_list.h"
+#include "atom/common/application_info.h"
 #include "atom/common/atom_version.h"
 #include "atom/common/native_mate_converters/string16_converter.h"
 #include "base/base_paths.h"
@@ -24,7 +25,6 @@
 #include "base/win/registry.h"
 #include "base/win/win_util.h"
 #include "base/win/windows_version.h"
-#include "brightray/common/application_info.h"
 
 namespace atom {
 
@@ -45,7 +45,7 @@ BOOL CALLBACK WindowsEnumerationHandler(HWND hwnd, LPARAM param) {
 
 bool GetProcessExecPath(base::string16* exe) {
   base::FilePath path;
-  if (!PathService::Get(base::FILE_EXE, &path)) {
+  if (!base::PathService::Get(base::FILE_EXE, &path)) {
     LOG(ERROR) << "Error getting app exe path";
     return false;
   }
@@ -84,6 +84,10 @@ bool FormatCommandLineString(base::string16* exe,
 
 }  // namespace
 
+Browser::UserTask::UserTask() = default;
+Browser::UserTask::UserTask(const UserTask&) = default;
+Browser::UserTask::~UserTask() = default;
+
 void Browser::Focus() {
   // On Windows we just focus on the first window found for this process.
   DWORD pid = GetCurrentProcessId();
@@ -91,9 +95,6 @@ void Browser::Focus() {
 }
 
 void Browser::AddRecentDocument(const base::FilePath& path) {
-  if (base::win::GetVersion() < base::win::VERSION_WIN7)
-    return;
-
   CComPtr<IShellItem> item;
   HRESULT hr = SHCreateItemFromParsingName(path.value().c_str(), NULL,
                                            IID_PPV_ARGS(&item));
@@ -106,17 +107,11 @@ void Browser::AddRecentDocument(const base::FilePath& path) {
 }
 
 void Browser::ClearRecentDocuments() {
-  CComPtr<IApplicationDestinations> destinations;
-  if (FAILED(destinations.CoCreateInstance(CLSID_ApplicationDestinations, NULL,
-                                           CLSCTX_INPROC_SERVER)))
-    return;
-  if (FAILED(destinations->SetAppID(GetAppUserModelID())))
-    return;
-  destinations->RemoveAllDestinations();
+  SHAddToRecentDocs(SHARD_APPIDINFO, nullptr);
 }
 
 void Browser::SetAppUserModelID(const base::string16& name) {
-  brightray::SetAppUserModelID(name);
+  atom::SetAppUserModelID(name);
 }
 
 bool Browser::SetUserTasks(const std::vector<UserTask>& tasks) {
@@ -320,12 +315,12 @@ Browser::LoginItemSettings Browser::GetLoginItemSettings(
 }
 
 PCWSTR Browser::GetAppUserModelID() {
-  return brightray::GetRawAppUserModelID();
+  return GetRawAppUserModelID();
 }
 
 std::string Browser::GetExecutableFileVersion() const {
   base::FilePath path;
-  if (PathService::Get(base::FILE_EXE, &path)) {
+  if (base::PathService::Get(base::FILE_EXE, &path)) {
     base::ThreadRestrictions::ScopedAllowIO allow_io;
     std::unique_ptr<FileVersionInfo> version_info(
         FileVersionInfo::CreateFileVersionInfo(path));
@@ -336,7 +331,7 @@ std::string Browser::GetExecutableFileVersion() const {
 }
 
 std::string Browser::GetExecutableFileProductName() const {
-  return brightray::GetApplicationName();
+  return GetApplicationName();
 }
 
 }  // namespace atom

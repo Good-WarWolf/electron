@@ -7,11 +7,7 @@
 #include <windows.h>
 
 #include "base/logging.h"
-#include "base/sys_info.h"
-
-extern "C" {
-#include "vendor/node/deps/uv/src/win/internal.h"
-}
+#include "base/system/sys_info.h"
 
 namespace atom {
 

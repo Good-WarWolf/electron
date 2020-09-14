@@ -66,6 +66,7 @@ class Session : public mate::TrackableObject<Session>,
                     const ResolveProxyHelper::ResolveProxyCallback& callback);
   template <CacheAction action>
   void DoCacheAction(const net::CompletionCallback& callback);
+  void GetCacheSize(const net::CompletionCallback& callback);
   void ClearStorageData(mate::Arguments* args);
   void FlushStorageData();
   void SetProxy(const mate::Dictionary& options, const base::Closure& callback);
@@ -75,6 +76,8 @@ class Session : public mate::TrackableObject<Session>,
   void SetCertVerifyProc(v8::Local<v8::Value> proc, mate::Arguments* args);
   void SetPermissionRequestHandler(v8::Local<v8::Value> val,
                                    mate::Arguments* args);
+  void SetPermissionCheckHandler(v8::Local<v8::Value> val,
+                                 mate::Arguments* args);
   void ClearHostResolverCache(mate::Arguments* args);
   void ClearAuthCache(mate::Arguments* args);
   void AllowNTLMCredentialsForDomains(const std::string& domains);
@@ -105,8 +108,8 @@ class Session : public mate::TrackableObject<Session>,
   v8::Global<v8::Value> web_request_;
   v8::Global<v8::Value> net_log_;
 
-  // The X-DevTools-Emulate-Network-Conditions-Client-Id.
-  std::string devtools_network_emulation_client_id_;
+  // The client id to enable the network throttler.
+  base::UnguessableToken network_emulation_token_;
 
   scoped_refptr<AtomBrowserContext> browser_context_;
 

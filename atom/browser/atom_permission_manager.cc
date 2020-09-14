@@ -4,12 +4,14 @@
 
 #include "atom/browser/atom_permission_manager.h"
 
+#include <memory>
 #include <vector>
 
 #include "atom/browser/atom_browser_client.h"
 #include "atom/browser/atom_browser_main_parts.h"
 #include "atom/browser/web_contents_preferences.h"
 #include "content/public/browser/child_process_security_policy.h"
+#include "content/public/browser/permission_controller.h"
 #include "content/public/browser/permission_type.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -100,12 +102,18 @@ void AtomPermissionManager::SetPermissionRequestHandler(
   request_handler_ = handler;
 }
 
+void AtomPermissionManager::SetPermissionCheckHandler(
+    const CheckHandler& handler) {
+  check_handler_ = handler;
+}
+
 int AtomPermissionManager::RequestPermission(
     content::PermissionType permission,
     content::RenderFrameHost* render_frame_host,
     const GURL& requesting_origin,
     bool user_gesture,
-    const StatusCallback& response_callback) {
+    const base::Callback<void(blink::mojom::PermissionStatus)>&
+        response_callback) {
   return RequestPermissionWithDetails(permission, render_frame_host,
                                       requesting_origin, user_gesture, nullptr,
                                       response_callback);
@@ -144,7 +152,7 @@ int AtomPermissionManager::RequestPermissionsWithDetails(
     const StatusesCallback& response_callback) {
   if (permissions.empty()) {
     response_callback.Run(std::vector<blink::mojom::PermissionStatus>());
-    return kNoPendingOperation;
+    return content::PermissionController::kNoPendingOperation;
   }
 
   if (request_handler_.is_null()) {
@@ -162,7 +170,7 @@ int AtomPermissionManager::RequestPermissionsWithDetails(
       statuses.push_back(blink::mojom::PermissionStatus::GRANTED);
     }
     response_callback.Run(statuses);
-    return kNoPendingOperation;
+    return content::PermissionController::kNoPendingOperation;
   }
 
   auto* web_contents =
@@ -175,12 +183,14 @@ int AtomPermissionManager::RequestPermissionsWithDetails(
     const auto callback =
         base::Bind(&AtomPermissionManager::OnPermissionResponse,
                    base::Unretained(this), request_id, i);
-    if (details == nullptr) {
-      request_handler_.Run(web_contents, permission, callback,
-                           base::DictionaryValue());
-    } else {
-      request_handler_.Run(web_contents, permission, callback, *details);
-    }
+    auto mutable_details =
+        details == nullptr ? base::DictionaryValue() : details->Clone();
+    mutable_details.SetKey(
+        "requestingUrl",
+        base::Value(render_frame_host->GetLastCommittedURL().spec()));
+    mutable_details.SetKey(
+        "isMainFrame", base::Value(render_frame_host->GetParent() == nullptr));
+    request_handler_.Run(web_contents, permission, callback, mutable_details);
   }
 
   return request_id;
@@ -214,13 +224,42 @@ blink::mojom::PermissionStatus AtomPermissionManager::GetPermissionStatus(
 
 int AtomPermissionManager::SubscribePermissionStatusChange(
     content::PermissionType permission,
+    content::RenderFrameHost* render_frame_host,
     const GURL& requesting_origin,
-    const GURL& embedding_origin,
-    const StatusCallback& callback) {
+    const base::Callback<void(blink::mojom::PermissionStatus)>& callback) {
   return -1;
 }
 
 void AtomPermissionManager::UnsubscribePermissionStatusChange(
     int subscription_id) {}
+
+bool AtomPermissionManager::CheckPermissionWithDetails(
+    content::PermissionType permission,
+    content::RenderFrameHost* render_frame_host,
+    const GURL& requesting_origin,
+    const base::DictionaryValue* details) const {
+  if (check_handler_.is_null()) {
+    return true;
+  }
+  auto* web_contents =
+      content::WebContents::FromRenderFrameHost(render_frame_host);
+  auto mutable_details =
+      details == nullptr ? base::DictionaryValue() : details->Clone();
+  mutable_details.SetKey(
+      "requestingUrl",
+      base::Value(render_frame_host->GetLastCommittedURL().spec()));
+  mutable_details.SetKey(
+      "isMainFrame", base::Value(render_frame_host->GetParent() == nullptr));
+  return check_handler_.Run(web_contents, permission, requesting_origin,
+                            mutable_details);
+}
+
+blink::mojom::PermissionStatus
+AtomPermissionManager::GetPermissionStatusForFrame(
+    content::PermissionType permission,
+    content::RenderFrameHost* render_frame_host,
+    const GURL& requesting_origin) {
+  return blink::mojom::PermissionStatus::GRANTED;
+}
 
 }  // namespace atom

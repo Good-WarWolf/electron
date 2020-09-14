@@ -62,7 +62,7 @@ struct Converter<in_app_purchase::Product> {
     dict.Set("formattedPrice", val.formattedPrice);
 
     // Downloadable Content Information
-    dict.Set("isDownloadable", val.downloadable);
+    dict.Set("isDownloadable", val.isDownloadable);
 
     return dict.GetHandle();
   }
@@ -132,11 +132,12 @@ void Initialize(v8::Local<v8::Object> exports,
   v8::Isolate* isolate = context->GetIsolate();
   mate::Dictionary dict(isolate, exports);
   dict.Set("inAppPurchase", InAppPurchase::Create(isolate));
-  dict.Set("InAppPurchase",
-           InAppPurchase::GetConstructor(isolate)->GetFunction());
+  dict.Set("InAppPurchase", InAppPurchase::GetConstructor(isolate)
+                                ->GetFunction(context)
+                                .ToLocalChecked());
 #endif
 }
 
 }  // namespace
 
-NODE_BUILTIN_MODULE_CONTEXT_AWARE(atom_browser_in_app_purchase, Initialize)
+NODE_LINKED_MODULE_CONTEXT_AWARE(atom_browser_in_app_purchase, Initialize)

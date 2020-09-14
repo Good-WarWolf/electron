@@ -8,9 +8,9 @@
 
 #include "atom/browser/native_browser_view.h"
 #include "atom/browser/native_window_mac.h"
+#include "atom/browser/ui/inspectable_web_contents_view.h"
 #include "atom/common/draggable_region.h"
 #include "base/mac/scoped_nsobject.h"
-#include "brightray/browser/inspectable_web_contents_view.h"
 
 @interface NSView (WebContentsView)
 - (void)setMouseDownCanMoveWindow:(BOOL)can_move;
@@ -55,13 +55,13 @@ std::vector<gfx::Rect> CalculateNonDraggableRegions(
 
 }  // namespace
 
-void BrowserWindow::OverrideNSWindowContentView(
-    brightray::InspectableWebContents* iwc) {
+void BrowserWindow::OverrideNSWindowContentView(InspectableWebContents* iwc) {
   // Make NativeWindow use a NSView as content view.
   static_cast<NativeWindowMac*>(window())->OverrideNSWindowContentView();
   // Add webview to contentView.
-  NSView* webView = iwc->GetView()->GetNativeView();
-  NSView* contentView = [window()->GetNativeWindow() contentView];
+  NSView* webView = iwc->GetView()->GetNativeView().GetNativeNSView();
+  NSView* contentView =
+      [window()->GetNativeWindow().GetNativeNSWindow() contentView];
   [webView setFrame:[contentView bounds]];
 
   // ensure that buttons view is floated to top of view hierarchy
@@ -81,7 +81,7 @@ void BrowserWindow::UpdateDraggableRegions(
   // All ControlRegionViews should be added as children of the WebContentsView,
   // because WebContentsView will be removed and re-added when entering and
   // leaving fullscreen mode.
-  NSView* webView = web_contents()->GetNativeView();
+  NSView* webView = web_contents()->GetNativeView().GetNativeNSView();
   NSInteger webViewWidth = NSWidth([webView bounds]);
   NSInteger webViewHeight = NSHeight([webView bounds]);
 
@@ -109,8 +109,10 @@ void BrowserWindow::UpdateDraggableRegions(
         DraggableRegionsToSkRegion(regions), webViewWidth, webViewHeight);
   }
 
-  if (window_->browser_view())
-    window_->browser_view()->UpdateDraggableRegions(drag_exclude_rects);
+  auto browser_views = window_->browser_views();
+  for (NativeBrowserView* view : browser_views) {
+    (view)->UpdateDraggableRegions(drag_exclude_rects);
+  }
 
   // Create and add a ControlRegionView for each region that needs to be
   // excluded from the dragging.

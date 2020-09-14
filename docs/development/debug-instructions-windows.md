@@ -7,6 +7,8 @@ debugging. However, using Visual Studio, GitHub's hosted Electron Symbol Server,
 and the Electron source code, you can enable step-through debugging
 with breakpoints inside Electron's source code.
 
+**See also**: There's a wealth of information on debugging Chromium, much of which also applies to Electron, on the Chromium developers site: [Debugging Chromium on Windows](https://www.chromium.org/developers/how-tos/debugging-on-windows).
+
 ## Requirements
 
 * **A debug build of Electron**: The easiest way is usually building it
@@ -34,7 +36,7 @@ To start a debugging session, open up PowerShell/CMD and execute your debug
 build of Electron, using the application to open as a parameter.
 
 ```powershell
-$ ./out/D/electron.exe ~/my-electron-app/
+$ ./out/Debug/electron.exe ~/my-electron-app/
 ```
 
 ### Setting Breakpoints
@@ -46,8 +48,7 @@ still set breakpoints - Visual Studio will automatically figure out that the
 source code matches the code running in the attached process and break
 accordingly.
 
-Relevant code files can be found in `./atom/` as well as in Brightray, found in
-`./brightray/browser` and `./brightray/common`.
+Relevant code files can be found in `./atom/`.
 
 ### Attaching
 

@@ -6,43 +6,45 @@
 #define ATOM_BROWSER_ATOM_BROWSER_MAIN_PARTS_H_
 
 #include <list>
+#include <memory>
 #include <string>
 
 #include "base/callback.h"
 #include "base/timer/timer.h"
-#include "brightray/browser/browser_main_parts.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_main_parts.h"
 #include "content/public/common/main_function_params.h"
 #include "services/device/public/mojom/geolocation_control.mojom.h"
+#include "ui/views/layout/layout_provider.h"
 
 class BrowserProcess;
+class IconManager;
 
-#if defined(TOOLKIT_VIEWS)
-namespace brightray {
-class ViewsDelegate;
+#if defined(USE_AURA)
+namespace wm {
+class WMState;
 }
 #endif
-
-namespace net_log {
-class ChromeNetLog;
-}
 
 namespace atom {
 
 class AtomBindings;
 class Browser;
-class IOThread;
 class JavascriptEnvironment;
 class NodeBindings;
 class NodeDebugger;
 class NodeEnvironment;
 class BridgeTaskRunner;
 
+#if defined(TOOLKIT_VIEWS)
+class ViewsDelegate;
+#endif
+
 #if defined(OS_MACOSX)
 class ViewsDelegateMac;
 #endif
 
-class AtomBrowserMainParts : public brightray::BrowserMainParts {
+class AtomBrowserMainParts : public content::BrowserMainParts {
  public:
   explicit AtomBrowserMainParts(const content::MainFunctionParams& params);
   ~AtomBrowserMainParts() override;
@@ -64,9 +66,10 @@ class AtomBrowserMainParts : public brightray::BrowserMainParts {
   // used to enable the location services once per client.
   device::mojom::GeolocationControl* GetGeolocationControl();
 
+  // Returns handle to the class responsible for extracting file icons.
+  IconManager* GetIconManager();
+
   Browser* browser() { return browser_.get(); }
-  IOThread* io_thread() const { return io_thread_.get(); }
-  net_log::ChromeNetLog* net_log() { return net_log_.get(); }
 
  protected:
   // content::BrowserMainParts:
@@ -76,14 +79,17 @@ class AtomBrowserMainParts : public brightray::BrowserMainParts {
   void ToolkitInitialized() override;
   void PreMainMessageLoopRun() override;
   bool MainMessageLoopRun(int* result_code) override;
+  void PreDefaultMainMessageLoopRun(base::OnceClosure quit_closure) override;
   void PostMainMessageLoopStart() override;
   void PostMainMessageLoopRun() override;
-#if defined(OS_MACOSX)
   void PreMainMessageLoopStart() override;
-#endif
   void PostDestroyThreads() override;
 
  private:
+  void InitializeFeatureList();
+  void OverrideAppLogsPath();
+  void PreMainMessageLoopStartCommon();
+
 #if defined(OS_POSIX)
   // Set signal handlers.
   void HandleSIGCHLD();
@@ -92,20 +98,23 @@ class AtomBrowserMainParts : public brightray::BrowserMainParts {
 
 #if defined(OS_MACOSX)
   void FreeAppDelegate();
+  void InitializeMainNib();
 #endif
 
 #if defined(OS_MACOSX)
   std::unique_ptr<ViewsDelegateMac> views_delegate_;
 #else
-  std::unique_ptr<brightray::ViewsDelegate> views_delegate_;
+  std::unique_ptr<ViewsDelegate> views_delegate_;
 #endif
 
-  // A fake BrowserProcess object that used to feed the source code from chrome.
-  std::unique_ptr<BrowserProcess> fake_browser_process_;
+#if defined(USE_AURA)
+  std::unique_ptr<wm::WMState> wm_state_;
+#endif
 
-  // The gin::PerIsolateData requires a task runner to create, so we feed it
-  // with a task runner that will post all work to main loop.
-  scoped_refptr<BridgeTaskRunner> bridge_task_runner_;
+  std::unique_ptr<views::LayoutProvider> layout_provider_;
+
+  // A fake BrowserProcess object that used to feed the source code from chrome.
+  std::unique_ptr<BrowserProcessImpl> fake_browser_process_;
 
   // Pointer to exit code.
   int* exit_code_ = nullptr;
@@ -116,10 +125,9 @@ class AtomBrowserMainParts : public brightray::BrowserMainParts {
   std::unique_ptr<AtomBindings> atom_bindings_;
   std::unique_ptr<NodeEnvironment> node_env_;
   std::unique_ptr<NodeDebugger> node_debugger_;
-  std::unique_ptr<IOThread> io_thread_;
-  std::unique_ptr<net_log::ChromeNetLog> net_log_;
+  std::unique_ptr<IconManager> icon_manager_;
 
-  base::Timer gc_timer_;
+  base::RepeatingTimer gc_timer_;
 
   // List of callbacks should be executed before destroying JS env.
   std::list<base::OnceClosure> destructors_;

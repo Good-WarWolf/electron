@@ -4,28 +4,30 @@
 
 #include "atom/browser/io_thread.h"
 
+#include <utility>
+
 #include "components/net_log/chrome_net_log.h"
 #include "content/public/browser/browser_thread.h"
-#include "net/proxy_resolution/proxy_service.h"
+#include "content/public/browser/network_service_instance.h"
+#include "net/cert/caching_cert_verifier.h"
+#include "net/cert/cert_verifier.h"
+#include "net/cert/cert_verify_proc.h"
+#include "net/cert/multi_threaded_cert_verifier.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_builder.h"
-#include "net/url_request/url_request_context_getter.h"
-
-#if defined(USE_NSS_CERTS)
-#include "net/cert_net/nss_ocsp.h"
-#endif
-
-#if defined(OS_LINUX) || defined(OS_MACOSX)
-#include "net/cert/cert_net_fetcher.h"
-#include "net/cert_net/cert_net_fetcher_impl.h"
-#endif
+#include "services/network/network_service.h"
+#include "services/network/url_request_context_builder_mojo.h"
 
 using content::BrowserThread;
 
-namespace atom {
-
-IOThread::IOThread(net_log::ChromeNetLog* net_log) : net_log_(net_log) {
+IOThread::IOThread(net_log::ChromeNetLog* net_log,
+                   SystemNetworkContextManager* system_network_context_manager)
+    : net_log_(net_log) {
   BrowserThread::SetIOThreadDelegate(this);
+
+  system_network_context_manager->SetUp(
+      &network_context_request_, &network_context_params_,
+      &http_auth_static_params_, &http_auth_dynamic_params_);
 }
 
 IOThread::~IOThread() {
@@ -33,48 +35,32 @@ IOThread::~IOThread() {
 }
 
 void IOThread::Init() {
-  net::URLRequestContextBuilder builder;
-  // TODO(deepak1556): We need to respoect user proxy configurations,
-  // the following initialization has to happen before any request
-  // contexts are utilized by the io thread, so that proper cert validation
-  // take place, solutions:
-  // 1) Use the request context from default partition, but since
-  //    an app can completely run on a custom session without ever creating
-  //    the default session, we will have to force create the default session
-  //    in those scenarios.
-  // 2) Add a new api on app module that sets the proxy configuration
-  //    for the global requests, like the cert fetchers below and
-  //    geolocation requests.
-  // 3) There is also ongoing work in upstream which will eventually allow
-  //    localizing these global fetchers to their own URLRequestContexts.
-  builder.set_proxy_resolution_service(
-      net::ProxyResolutionService::CreateDirect());
-  url_request_context_ = builder.Build();
-  url_request_context_getter_ = new net::TrivialURLRequestContextGetter(
-      url_request_context_.get(), base::ThreadTaskRunnerHandle::Get());
+  std::unique_ptr<network::URLRequestContextBuilderMojo> builder =
+      std::make_unique<network::URLRequestContextBuilderMojo>();
 
-#if defined(USE_NSS_CERTS)
-  net::SetURLRequestContextForNSSHttpIO(url_request_context_.get());
-#endif
-#if defined(OS_LINUX) || defined(OS_MACOSX)
-  net::SetGlobalCertNetFetcher(
-      net::CreateCertNetFetcher(url_request_context_.get()));
-#endif
+  auto cert_verifier = std::make_unique<net::CachingCertVerifier>(
+      std::make_unique<net::MultiThreadedCertVerifier>(
+          net::CertVerifyProc::CreateDefault()));
+  builder->SetCertVerifier(std::move(cert_verifier));
+
+  // Create the network service, so that shared host resolver
+  // gets created which is required to set the auth preferences below.
+  network::NetworkService* network_service = content::GetNetworkServiceImpl();
+  network_service->SetUpHttpAuth(std::move(http_auth_static_params_));
+  network_service->ConfigureHttpAuthPrefs(std::move(http_auth_dynamic_params_));
+
+  system_network_context_ =
+      network_service
+          ->CreateNetworkContextWithBuilder(std::move(network_context_request_),
+                                            std::move(network_context_params_),
+                                            std::move(builder),
+                                            &system_request_context_)
+          .release();
 }
 
 void IOThread::CleanUp() {
-#if defined(USE_NSS_CERTS)
-  net::SetURLRequestContextForNSSHttpIO(nullptr);
-#endif
-#if defined(OS_LINUX) || defined(OS_MACOSX)
-  net::ShutdownGlobalCertNetFetcher();
-#endif
-  // Explicitly release before the IO thread gets destroyed.
-  url_request_context_.reset();
-  url_request_context_getter_ = nullptr;
+  system_request_context_->proxy_resolution_service()->OnShutdown();
 
   if (net_log_)
     net_log_->ShutDownBeforeTaskScheduler();
 }
-
-}  // namespace atom

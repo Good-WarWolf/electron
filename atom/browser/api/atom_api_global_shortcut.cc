@@ -5,6 +5,7 @@
 #include "atom/browser/api/atom_api_global_shortcut.h"
 
 #include <string>
+#include <vector>
 
 #include "atom/browser/api/atom_api_system_preferences.h"
 #include "atom/common/native_mate_converters/accelerator_converter.h"
@@ -14,7 +15,6 @@
 #include "native_mate/dictionary.h"
 
 #include "atom/common/node_includes.h"
-#include "atom/common/platform_util.h"
 
 #if defined(OS_MACOSX)
 #include "base/mac/mac_util.h"
@@ -26,7 +26,7 @@ namespace {
 
 #if defined(OS_MACOSX)
 bool RegisteringMediaKeyForUntrustedClient(const ui::Accelerator& accelerator) {
-  if (platform_util::IsAtLeastOS10_14()) {
+  if (base::mac::IsAtLeastOS10_14()) {
     constexpr ui::KeyboardCode mediaKeys[] = {
         ui::VKEY_MEDIA_PLAY_PAUSE, ui::VKEY_MEDIA_NEXT_TRACK,
         ui::VKEY_MEDIA_PREV_TRACK, ui::VKEY_MEDIA_STOP};
@@ -68,6 +68,29 @@ void GlobalShortcut::OnKeyPressed(const ui::Accelerator& accelerator) {
   accelerator_callback_map_[accelerator].Run();
 }
 
+bool GlobalShortcut::RegisterAll(
+    const std::vector<ui::Accelerator>& accelerators,
+    const base::Closure& callback) {
+  std::vector<ui::Accelerator> registered;
+
+  for (auto& accelerator : accelerators) {
+#if defined(OS_MACOSX)
+    if (RegisteringMediaKeyForUntrustedClient(accelerator))
+      return false;
+
+    GlobalShortcutListener* listener = GlobalShortcutListener::GetInstance();
+    if (!listener->RegisterAccelerator(accelerator, this)) {
+      // unregister all shortcuts if any failed
+      UnregisterSome(registered);
+      return false;
+    }
+#endif
+    registered.push_back(accelerator);
+    accelerator_callback_map_[accelerator] = callback;
+  }
+  return true;
+}
+
 bool GlobalShortcut::Register(const ui::Accelerator& accelerator,
                               const base::Closure& callback) {
 #if defined(OS_MACOSX)
@@ -93,6 +116,13 @@ void GlobalShortcut::Unregister(const ui::Accelerator& accelerator) {
                                                                this);
 }
 
+void GlobalShortcut::UnregisterSome(
+    const std::vector<ui::Accelerator>& accelerators) {
+  for (auto& accelerator : accelerators) {
+    Unregister(accelerator);
+  }
+}
+
 bool GlobalShortcut::IsRegistered(const ui::Accelerator& accelerator) {
   return ContainsKey(accelerator_callback_map_, accelerator);
 }
@@ -112,6 +142,7 @@ void GlobalShortcut::BuildPrototype(v8::Isolate* isolate,
                                     v8::Local<v8::FunctionTemplate> prototype) {
   prototype->SetClassName(mate::StringToV8(isolate, "GlobalShortcut"));
   mate::ObjectTemplateBuilder(isolate, prototype->PrototypeTemplate())
+      .SetMethod("registerAll", &GlobalShortcut::RegisterAll)
       .SetMethod("register", &GlobalShortcut::Register)
       .SetMethod("isRegistered", &GlobalShortcut::IsRegistered)
       .SetMethod("unregister", &GlobalShortcut::Unregister)
@@ -135,4 +166,4 @@ void Initialize(v8::Local<v8::Object> exports,
 
 }  // namespace
 
-NODE_BUILTIN_MODULE_CONTEXT_AWARE(atom_browser_global_shortcut, Initialize)
+NODE_LINKED_MODULE_CONTEXT_AWARE(atom_browser_global_shortcut, Initialize)

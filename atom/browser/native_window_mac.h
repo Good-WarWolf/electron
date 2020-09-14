@@ -7,6 +7,7 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include <memory>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -20,7 +21,6 @@
 @class AtomPreviewItem;
 @class AtomTouchBar;
 @class CustomWindowButtonView;
-@class FullSizeContentView;
 
 namespace atom {
 
@@ -53,6 +53,8 @@ class NativeWindowMac : public NativeWindow {
   bool IsFullscreen() const override;
   void SetBounds(const gfx::Rect& bounds, bool animate = false) override;
   gfx::Rect GetBounds() override;
+  bool IsNormal() override;
+  gfx::Rect GetNormalBounds() override;
   void SetContentSizeConstraints(
       const extensions::SizeConstraints& size_constraints) override;
   void SetResizable(bool resizable) override;
@@ -99,7 +101,8 @@ class NativeWindowMac : public NativeWindow {
   bool IsDocumentEdited() override;
   void SetIgnoreMouseEvents(bool ignore, bool forward) override;
   void SetContentProtection(bool enable) override;
-  void SetBrowserView(NativeBrowserView* browser_view) override;
+  void AddBrowserView(NativeBrowserView* browser_view) override;
+  void RemoveBrowserView(NativeBrowserView* browser_view) override;
   void SetParentWindow(NativeWindow* parent) override;
   gfx::NativeView GetNativeView() const override;
   gfx::NativeWindow GetNativeWindow() const override;
@@ -109,7 +112,8 @@ class NativeWindowMac : public NativeWindow {
   void SetOverlayIcon(const gfx::Image& overlay,
                       const std::string& description) override;
 
-  void SetVisibleOnAllWorkspaces(bool visible) override;
+  void SetVisibleOnAllWorkspaces(bool visible,
+                                 bool visibleOnFullScreen) override;
   bool IsVisibleOnAllWorkspaces() override;
 
   void SetAutoHideCursor(bool auto_hide) override;
@@ -120,6 +124,8 @@ class NativeWindowMac : public NativeWindow {
   void MoveTabToNewWindow() override;
   void ToggleTabBar() override;
   bool AddTabbedWindow(NativeWindow* window) override;
+
+  bool SetWindowButtonVisibility(bool visible) override;
 
   void SetVibrancy(const std::string& type) override;
   void SetTouchBar(
@@ -149,7 +155,7 @@ class NativeWindowMac : public NativeWindow {
   AtomTouchBar* touch_bar() const { return touch_bar_.get(); }
   bool zoom_to_page_width() const { return zoom_to_page_width_; }
   bool fullscreen_window_title() const { return fullscreen_window_title_; }
-  bool simple_fullscreen() const { return always_simple_fullscreen_; }
+  bool always_simple_fullscreen() const { return always_simple_fullscreen_; }
 
  protected:
   // views::WidgetDelegate:
@@ -158,11 +164,9 @@ class NativeWindowMac : public NativeWindow {
 
  private:
   // Add custom layers to the content view.
-  void AddContentViewLayers();
+  void AddContentViewLayers(bool minimizable, bool closable);
 
   void InternalSetParentWindow(NativeWindow* parent, bool attach);
-  void ShowWindowButton(NSWindowButton button);
-
   void SetForwardMouseMessages(bool forward);
 
   AtomNSWindow* window_;  // Weak ref, managed by widget_.
@@ -175,10 +179,12 @@ class NativeWindowMac : public NativeWindow {
   // Event monitor for scroll wheel event.
   id wheel_event_monitor_;
 
-  // The view that will fill the whole frameless window.
-  base::scoped_nsobject<FullSizeContentView> container_view_;
+  // The NSView that used as contentView of window.
+  //
+  // For frameless window it would fill the whole window.
+  base::scoped_nsobject<NSView> container_view_;
 
-  // The view that fills the client area.
+  // The views::View that fills the client area.
   std::unique_ptr<RootViewMac> root_view_;
 
   bool is_kiosk_ = false;
@@ -194,6 +200,10 @@ class NativeWindowMac : public NativeWindow {
 
   // The "titleBarStyle" option.
   TitleBarStyle title_bar_style_ = NORMAL;
+
+  // The visibility mode of window button controls when explicitly set through
+  // setWindowButtonVisibility().
+  base::Optional<bool> window_button_visibility_;
 
   // Simple (pre-Lion) Fullscreen Settings
   bool always_simple_fullscreen_ = false;

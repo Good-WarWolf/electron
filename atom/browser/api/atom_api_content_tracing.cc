@@ -8,8 +8,10 @@
 #include "atom/common/native_mate_converters/callback.h"
 #include "atom/common/native_mate_converters/file_path_converter.h"
 #include "atom/common/native_mate_converters/value_converter.h"
+#include "atom/common/promise_util.h"
 #include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/threading/thread_restrictions.h"
 #include "content/public/browser/tracing_controller.h"
 #include "native_mate/dictionary.h"
 
@@ -58,6 +60,11 @@ scoped_refptr<TracingController::TraceDataEndpoint> GetTraceDataEndpoint(
     const base::FilePath& path,
     const CompletionCallback& callback) {
   base::FilePath result_file_path = path;
+
+  // base::CreateTemporaryFile prevents blocking so we need to allow it
+  // for now since offloading this to a different sequence would require
+  // changing the api shape
+  base::ThreadRestrictions::ScopedAllowIO allow_io;
   if (result_file_path.empty() && !base::CreateTemporaryFile(&result_file_path))
     LOG(ERROR) << "Creating temporary file failed";
 
@@ -65,28 +72,72 @@ scoped_refptr<TracingController::TraceDataEndpoint> GetTraceDataEndpoint(
       result_file_path, base::Bind(callback, result_file_path));
 }
 
-void StopRecording(const base::FilePath& path,
-                   const CompletionCallback& callback) {
-  TracingController::GetInstance()->StopTracing(
-      GetTraceDataEndpoint(path, callback));
+void OnRecordingStopped(const atom::util::CopyablePromise& promise,
+                        const base::FilePath& path) {
+  promise.GetPromise().Resolve(path);
+}
+
+v8::Local<v8::Promise> StopRecording(v8::Isolate* isolate,
+                                     const base::FilePath& path) {
+  atom::util::Promise promise(isolate);
+  v8::Local<v8::Promise> handle = promise.GetHandle();
+
+  // TODO(zcbenz): Remove the use of CopyablePromise when the
+  // CreateFileEndpoint API accepts OnceCallback.
+  TracingController::GetInstance()->StopTracing(GetTraceDataEndpoint(
+      path,
+      base::Bind(&OnRecordingStopped, atom::util::CopyablePromise(promise))));
+  return handle;
+}
+
+void OnCategoriesAvailable(atom::util::Promise promise,
+                           const std::set<std::string>& categories) {
+  promise.Resolve(categories);
+}
+
+v8::Local<v8::Promise> GetCategories(v8::Isolate* isolate) {
+  atom::util::Promise promise(isolate);
+  v8::Local<v8::Promise> handle = promise.GetHandle();
+
+  // Note: This method always succeeds.
+  TracingController::GetInstance()->GetCategories(
+      base::BindOnce(&OnCategoriesAvailable, std::move(promise)));
+  return handle;
+}
+
+void OnTracingStarted(atom::util::Promise promise) {
+  promise.Resolve();
+}
+
+v8::Local<v8::Promise> StartTracing(
+    v8::Isolate* isolate,
+    const base::trace_event::TraceConfig& trace_config) {
+  atom::util::Promise promise(isolate);
+  v8::Local<v8::Promise> handle = promise.GetHandle();
+
+  // Note: This method always succeeds.
+  TracingController::GetInstance()->StartTracing(
+      trace_config, base::BindOnce(&OnTracingStarted, std::move(promise)));
+  return handle;
+}
+
+bool GetTraceBufferUsage(
+    const base::RepeatingCallback<void(float, size_t)>& callback) {
+  return TracingController::GetInstance()->GetTraceBufferUsage(
+      base::BindOnce(callback));
 }
 
 void Initialize(v8::Local<v8::Object> exports,
                 v8::Local<v8::Value> unused,
                 v8::Local<v8::Context> context,
                 void* priv) {
-  auto controller = base::Unretained(TracingController::GetInstance());
   mate::Dictionary dict(context->GetIsolate(), exports);
-  dict.SetMethod("getCategories",
-                 base::Bind(&TracingController::GetCategories, controller));
-  dict.SetMethod("startRecording",
-                 base::Bind(&TracingController::StartTracing, controller));
+  dict.SetMethod("getCategories", &GetCategories);
+  dict.SetMethod("startRecording", &StartTracing);
   dict.SetMethod("stopRecording", &StopRecording);
-  dict.SetMethod(
-      "getTraceBufferUsage",
-      base::Bind(&TracingController::GetTraceBufferUsage, controller));
+  dict.SetMethod("getTraceBufferUsage", &GetTraceBufferUsage);
 }
 
 }  // namespace
 
-NODE_BUILTIN_MODULE_CONTEXT_AWARE(atom_browser_content_tracing, Initialize)
+NODE_LINKED_MODULE_CONTEXT_AWARE(atom_browser_content_tracing, Initialize)

@@ -21,17 +21,19 @@
 #include "content/public/renderer/render_view.h"
 #include "native_mate/dictionary.h"
 #include "native_mate/object_template_builder.h"
-#include "third_party/WebKit/Source/platform/weborigin/SchemeRegistry.h"
-#include "third_party/WebKit/public/platform/WebCache.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebElement.h"
-#include "third_party/WebKit/public/web/WebFrameWidget.h"
-#include "third_party/WebKit/public/web/WebImeTextSpan.h"
-#include "third_party/WebKit/public/web/WebInputMethodController.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebScriptExecutionCallback.h"
-#include "third_party/WebKit/public/web/WebScriptSource.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/platform/web_cache.h"
+#include "third_party/blink/public/platform/web_isolated_world_info.h"
+#include "third_party/blink/public/web/web_custom_element.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_element.h"
+#include "third_party/blink/public/web/web_frame_widget.h"
+#include "third_party/blink/public/web/web_ime_text_span.h"
+#include "third_party/blink/public/web/web_input_method_controller.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_script_execution_callback.h"
+#include "third_party/blink/public/web/web_script_source.h"
+#include "third_party/blink/public/web/web_view.h"
+#include "url/url_util.h"
 
 #include "atom/common/node_includes.h"
 
@@ -242,15 +244,16 @@ void SetLayoutZoomLevelLimits(v8::Local<v8::Value> window,
   web_frame->View()->ZoomLimitsChanged(min_level, max_level);
 }
 
-v8::Local<v8::Value> RegisterEmbedderCustomElement(
-    v8::Local<v8::Value> window,
-    const base::string16& name,
-    v8::Local<v8::Object> options) {
-  return GetRenderFrame(window)
-      ->GetWebFrame()
-      ->GetDocument()
-      .RegisterEmbedderCustomElement(blink::WebString::FromUTF16(name),
-                                     options);
+void AllowGuestViewElementDefinition(v8::Isolate* isolate,
+                                     v8::Local<v8::Value> window,
+                                     v8::Local<v8::Object> context,
+                                     v8::Local<v8::Function> register_cb) {
+  v8::HandleScope handle_scope(isolate);
+  v8::Context::Scope context_scope(context->CreationContext());
+  blink::WebCustomElement::EmbedderNamesAllowedScope embedder_names_scope;
+  GetRenderFrame(context)->GetWebFrame()->RequestExecuteV8Function(
+      context->CreationContext(), register_cb, v8::Null(isolate), 0, nullptr,
+      nullptr);
 }
 
 int GetWebFrameId(v8::Local<v8::Value> window,
@@ -276,9 +279,10 @@ int GetWebFrameId(v8::Local<v8::Value> window,
 void SetSpellCheckProvider(mate::Arguments* args,
                            v8::Local<v8::Value> window,
                            const std::string& language,
-                           bool auto_spell_correct_turned_on,
                            v8::Local<v8::Object> provider) {
-  if (!provider->Has(mate::StringToV8(args->isolate(), "spellCheck"))) {
+  auto context = args->isolate()->GetCurrentContext();
+  if (!provider->Has(context, mate::StringToV8(args->isolate(), "spellCheck"))
+           .ToChecked()) {
     args->ThrowError("\"spellCheck\" has to be defined");
     return;
   }
@@ -291,62 +295,12 @@ void SetSpellCheckProvider(mate::Arguments* args,
 
   // Set spellchecker for all live frames in the same process or
   // in the sandbox mode for all live sub frames to this WebFrame.
-  auto spell_check_client = std::make_unique<SpellCheckClient>(
-      language, auto_spell_correct_turned_on, args->isolate(), provider);
+  auto spell_check_client =
+      std::make_unique<SpellCheckClient>(language, args->isolate(), provider);
   FrameSetSpellChecker spell_checker(spell_check_client.get(), render_frame);
 
   // Attach the spell checker to RenderFrame.
   new SpellCheckerHolder(render_frame, std::move(spell_check_client));
-}
-
-void RegisterURLSchemeAsBypassingCSP(v8::Local<v8::Value> window,
-                                     const std::string& scheme) {
-  // Register scheme to bypass pages's Content Security Policy.
-  blink::SchemeRegistry::RegisterURLSchemeAsBypassingContentSecurityPolicy(
-      WTF::String::FromUTF8(scheme.data(), scheme.length()));
-}
-
-void RegisterURLSchemeAsPrivileged(v8::Local<v8::Value> window,
-                                   const std::string& scheme,
-                                   mate::Arguments* args) {
-  // TODO(deepak1556): blink::SchemeRegistry methods should be called
-  // before any renderer threads are created. Fixing this would break
-  // current api. Change it with 2.0.
-
-  // Read optional flags
-  bool secure = true;
-  bool bypassCSP = true;
-  bool allowServiceWorkers = true;
-  bool supportFetchAPI = true;
-  bool corsEnabled = true;
-  if (args->Length() == 3) {
-    mate::Dictionary options;
-    if (args->GetNext(&options)) {
-      options.Get("secure", &secure);
-      options.Get("bypassCSP", &bypassCSP);
-      options.Get("allowServiceWorkers", &allowServiceWorkers);
-      options.Get("supportFetchAPI", &supportFetchAPI);
-      options.Get("corsEnabled", &corsEnabled);
-    }
-  }
-  // Register scheme to privileged list (https, wss, data, chrome-extension)
-  WTF::String privileged_scheme(
-      WTF::String::FromUTF8(scheme.data(), scheme.length()));
-  if (bypassCSP) {
-    blink::SchemeRegistry::RegisterURLSchemeAsBypassingContentSecurityPolicy(
-        privileged_scheme);
-  }
-  if (allowServiceWorkers) {
-    blink::SchemeRegistry::RegisterURLSchemeAsAllowingServiceWorkers(
-        privileged_scheme);
-  }
-  if (supportFetchAPI) {
-    blink::SchemeRegistry::RegisterURLSchemeAsSupportingFetchAPI(
-        privileged_scheme);
-  }
-  if (corsEnabled) {
-    blink::SchemeRegistry::RegisterURLSchemeAsCORSEnabled(privileged_scheme);
-  }
 }
 
 void InsertText(v8::Local<v8::Value> window, const std::string& text) {
@@ -369,9 +323,9 @@ void InsertCSS(v8::Local<v8::Value> window, const std::string& css) {
   }
 }
 
-void ExecuteJavaScript(v8::Local<v8::Value> window,
-                       const base::string16& code,
-                       mate::Arguments* args) {
+void ExecuteJavaScript(mate::Arguments* args,
+                       v8::Local<v8::Value> window,
+                       const base::string16& code) {
   bool has_user_gesture = false;
   args->GetNext(&has_user_gesture);
   ScriptExecutionCallback::CompletionCallback completion_callback;
@@ -384,10 +338,10 @@ void ExecuteJavaScript(v8::Local<v8::Value> window,
 }
 
 void ExecuteJavaScriptInIsolatedWorld(
+    mate::Arguments* args,
     v8::Local<v8::Value> window,
     int world_id,
-    const std::vector<mate::Dictionary>& scripts,
-    mate::Arguments* args) {
+    const std::vector<mate::Dictionary>& scripts) {
   std::vector<blink::WebScriptSource> sources;
 
   for (const auto& script : scripts) {
@@ -424,26 +378,27 @@ void ExecuteJavaScriptInIsolatedWorld(
       scriptExecutionType, callback.release());
 }
 
-void SetIsolatedWorldSecurityOrigin(v8::Local<v8::Value> window,
-                                    int world_id,
-                                    const std::string& origin_url) {
-  GetRenderFrame(window)->GetWebFrame()->SetIsolatedWorldSecurityOrigin(
-      world_id, blink::WebSecurityOrigin::CreateFromString(
-                    blink::WebString::FromUTF8(origin_url)));
-}
+void SetIsolatedWorldInfo(v8::Local<v8::Value> window,
+                          int world_id,
+                          const mate::Dictionary& options,
+                          mate::Arguments* args) {
+  std::string origin_url, security_policy, name;
+  options.Get("securityOrigin", &origin_url);
+  options.Get("csp", &security_policy);
+  options.Get("name", &name);
 
-void SetIsolatedWorldContentSecurityPolicy(v8::Local<v8::Value> window,
-                                           int world_id,
-                                           const std::string& security_policy) {
-  GetRenderFrame(window)->GetWebFrame()->SetIsolatedWorldContentSecurityPolicy(
-      world_id, blink::WebString::FromUTF8(security_policy));
-}
+  if (!security_policy.empty() && origin_url.empty()) {
+    args->ThrowError(
+        "If csp is specified, securityOrigin should also be specified");
+    return;
+  }
 
-void SetIsolatedWorldHumanReadableName(v8::Local<v8::Value> window,
-                                       int world_id,
-                                       const std::string& name) {
-  GetRenderFrame(window)->GetWebFrame()->SetIsolatedWorldHumanReadableName(
-      world_id, blink::WebString::FromUTF8(name));
+  blink::WebIsolatedWorldInfo info;
+  info.security_origin = blink::WebSecurityOrigin::CreateFromString(
+      blink::WebString::FromUTF8(origin_url));
+  info.content_security_policy = blink::WebString::FromUTF8(security_policy);
+  info.human_readable_name = blink::WebString::FromUTF8(name);
+  GetRenderFrame(window)->GetWebFrame()->SetIsolatedWorldInfo(world_id, info);
 }
 
 blink::WebCache::ResourceTypeStats GetResourceUsage(v8::Isolate* isolate) {
@@ -479,6 +434,7 @@ v8::Local<v8::Value> GetOpener(v8::Isolate* isolate,
     return v8::Null(isolate);
 }
 
+// Don't name it as GetParent, Windows has API with same name.
 v8::Local<v8::Value> GetFrameParent(v8::Isolate* isolate,
                                     v8::Local<v8::Value> window) {
   blink::WebFrame* frame = GetRenderFrame(window)->GetWebFrame()->Parent();
@@ -567,25 +523,16 @@ void Initialize(v8::Local<v8::Object> exports,
   dict.SetMethod("getZoomFactor", &GetZoomFactor);
   dict.SetMethod("setVisualZoomLevelLimits", &SetVisualZoomLevelLimits);
   dict.SetMethod("setLayoutZoomLevelLimits", &SetLayoutZoomLevelLimits);
-  dict.SetMethod("registerEmbedderCustomElement",
-                 &RegisterEmbedderCustomElement);
+  dict.SetMethod("allowGuestViewElementDefinition",
+                 &AllowGuestViewElementDefinition);
   dict.SetMethod("getWebFrameId", &GetWebFrameId);
   dict.SetMethod("setSpellCheckProvider", &SetSpellCheckProvider);
-  dict.SetMethod("registerURLSchemeAsBypassingCSP",
-                 &RegisterURLSchemeAsBypassingCSP);
-  dict.SetMethod("registerURLSchemeAsPrivileged",
-                 &RegisterURLSchemeAsPrivileged);
   dict.SetMethod("insertText", &InsertText);
   dict.SetMethod("insertCSS", &InsertCSS);
   dict.SetMethod("executeJavaScript", &ExecuteJavaScript);
   dict.SetMethod("executeJavaScriptInIsolatedWorld",
                  &ExecuteJavaScriptInIsolatedWorld);
-  dict.SetMethod("setIsolatedWorldSecurityOrigin",
-                 &SetIsolatedWorldSecurityOrigin);
-  dict.SetMethod("setIsolatedWorldContentSecurityPolicy",
-                 &SetIsolatedWorldContentSecurityPolicy);
-  dict.SetMethod("setIsolatedWorldHumanReadableName",
-                 &SetIsolatedWorldHumanReadableName);
+  dict.SetMethod("setIsolatedWorldInfo", &SetIsolatedWorldInfo);
   dict.SetMethod("getResourceUsage", &GetResourceUsage);
   dict.SetMethod("clearCache", &ClearCache);
   dict.SetMethod("_findFrameByRoutingId", &FindFrameByRoutingId);
@@ -601,4 +548,4 @@ void Initialize(v8::Local<v8::Object> exports,
 
 }  // namespace
 
-NODE_BUILTIN_MODULE_CONTEXT_AWARE(atom_renderer_web_frame, Initialize)
+NODE_LINKED_MODULE_CONTEXT_AWARE(atom_renderer_web_frame, Initialize)

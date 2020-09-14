@@ -11,7 +11,7 @@ For example:
 
 ```javascript
 const electron = require('electron')
-const {app} = electron
+const { app } = electron
 
 app.on('ready', () => {
   electron.powerMonitor.on('suspend', () => {
@@ -59,7 +59,7 @@ Emitted as soon as the systems screen is unlocked.
 
 The `powerMonitor` module has the following methods:
 
-#### `powerMonitor.querySystemIdleState(idleThreshold, callback)`
+### `powerMonitor.querySystemIdleState(idleThreshold, callback)`
 
 * `idleThreshold` Integer
 * `callback` Function
@@ -70,7 +70,7 @@ before considered idle. `callback` will be called synchronously on some systems
 and with an `idleState` argument that describes the system's state. `locked` is
 available on supported systems only.
 
-#### `powerMonitor.querySystemIdleTime(callback)`
+### `powerMonitor.querySystemIdleTime(callback)`
 
 * `callback` Function
   * `idleTime` Integer - Idle time in seconds

@@ -5,6 +5,7 @@
 #include "atom/browser/atom_javascript_dialog_manager.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "atom/browser/api/atom_api_web_contents.h"
@@ -40,7 +41,16 @@ void AtomJavaScriptDialogManager::RunJavaScriptDialog(
     DialogClosedCallback callback,
     bool* did_suppress_message) {
   auto origin_url = rfh->GetLastCommittedURL();
-  const std::string& origin = origin_url.GetOrigin().spec();
+
+  std::string origin;
+  // For file:// URLs we do the alert filtering by the
+  // file path currently loaded
+  if (origin_url.SchemeIsFile()) {
+    origin = origin_url.path();
+  } else {
+    origin = origin_url.GetOrigin().spec();
+  }
+
   if (origin_counts_[origin] == kUserWantsNoMoreDialogs) {
     return std::move(callback).Run(false, base::string16());
   }
@@ -51,9 +61,16 @@ void AtomJavaScriptDialogManager::RunJavaScriptDialog(
     return;
   }
 
+  // No default button
+  int default_id = -1;
+  int cancel_id = 0;
+
   std::vector<std::string> buttons = {"OK"};
   if (dialog_type == JavaScriptDialogType::JAVASCRIPT_DIALOG_TYPE_CONFIRM) {
     buttons.push_back("Cancel");
+    // First button is default, second button is cancel
+    default_id = 0;
+    cancel_id = 1;
   }
 
   origin_counts_[origin]++;
@@ -62,7 +79,7 @@ void AtomJavaScriptDialogManager::RunJavaScriptDialog(
   std::string checkbox;
   if (origin_counts_[origin] > 1 && web_preferences &&
       web_preferences->IsEnabled("safeDialogs") &&
-      !web_preferences->dict()->GetString("safeDialogsMessage", &checkbox)) {
+      !web_preferences->GetPreference("safeDialogsMessage", &checkbox)) {
     checkbox = "Prevent this app from creating additional dialogs";
   }
 
@@ -71,12 +88,12 @@ void AtomJavaScriptDialogManager::RunJavaScriptDialog(
   if (web_preferences && !web_preferences->IsEnabled(options::kOffscreen)) {
     auto* relay = NativeWindowRelay::FromWebContents(web_contents);
     if (relay)
-      window = relay->window.get();
+      window = relay->GetNativeWindow();
   }
 
   atom::ShowMessageBox(
-      window, atom::MessageBoxType::MESSAGE_BOX_TYPE_NONE, buttons, -1, 0,
-      atom::MessageBoxOptions::MESSAGE_BOX_NONE, "",
+      window, atom::MessageBoxType::MESSAGE_BOX_TYPE_NONE, buttons, default_id,
+      cancel_id, atom::MessageBoxOptions::MESSAGE_BOX_NONE, "",
       base::UTF16ToUTF8(message_text), "", checkbox, false, gfx::ImageSkia(),
       base::Bind(&AtomJavaScriptDialogManager::OnMessageBoxCallback,
                  base::Unretained(this), base::Passed(std::move(callback)),

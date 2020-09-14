@@ -10,14 +10,14 @@ const args = require('minimist')(process.argv.slice(2), {
 })
 const { execSync } = require('child_process')
 const { GitProcess } = require('dugite')
+const { getCurrentBranch } = require('./lib/utils.js')
 
-const GitHub = require('github')
+const octokit = require('@octokit/rest')()
 const path = require('path')
 
 const gitDir = path.resolve(__dirname, '..')
-const github = new GitHub()
 
-github.authenticate({
+octokit.authenticate({
   type: 'token',
   token: process.env.ELECTRON_GITHUB_TOKEN
 })
@@ -25,18 +25,6 @@ github.authenticate({
 function getLastBumpCommit (tag) {
   const data = execSync(`git log -n1 --grep "Bump ${tag}" --format='format:{"hash": "%H", "message": "%s"}'`).toString()
   return JSON.parse(data)
-}
-
-async function getCurrentBranch (gitDir) {
-  const gitArgs = ['rev-parse', '--abbrev-ref', 'HEAD']
-  const branchDetails = await GitProcess.exec(gitArgs, gitDir)
-  if (branchDetails.exitCode === 0) {
-    return branchDetails.stdout.trim()
-  }
-
-  const error = GitProcess.parseError(branchDetails.stderr)
-  console.error(`Couldn't get current branch: `, error)
-  process.exit(1)
 }
 
 async function revertBumpCommit (tag) {
@@ -55,17 +43,17 @@ async function revertBumpCommit (tag) {
 
 async function deleteDraft (releaseId, targetRepo) {
   try {
-    const result = await github.repos.getRelease({
+    const result = await octokit.repos.getRelease({
       owner: 'electron',
       repo: targetRepo,
-      id: parseInt(releaseId, 10)
+      release_id: parseInt(releaseId, 10)
     })
     console.log(result)
     if (!result.data.draft) {
       console.log(`${fail} published releases cannot be deleted.`)
       return false
     } else {
-      await github.repos.deleteRelease({
+      await octokit.repos.deleteRelease({
         owner: 'electron',
         repo: targetRepo,
         release_id: result.data.id
@@ -81,7 +69,7 @@ async function deleteDraft (releaseId, targetRepo) {
 
 async function deleteTag (tag, targetRepo) {
   try {
-    await github.gitdata.deleteReference({
+    await octokit.git.deleteRef({
       owner: 'electron',
       repo: targetRepo,
       ref: `tags/${tag}`

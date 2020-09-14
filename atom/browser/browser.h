@@ -5,11 +5,13 @@
 #ifndef ATOM_BROWSER_BROWSER_H_
 #define ATOM_BROWSER_BROWSER_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "atom/browser/browser_observer.h"
 #include "atom/browser/window_list_observer.h"
+#include "atom/common/promise_util.h"
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
@@ -178,9 +180,12 @@ class Browser : public WindowListObserver {
   // Set docks' icon.
   void DockSetIcon(const gfx::Image& image);
 
+#endif  // defined(OS_MACOSX)
+
+#if defined(OS_MACOSX) || defined(OS_LINUX)
   void ShowAboutPanel();
   void SetAboutPanelOptions(const base::DictionaryValue& options);
-#endif  // defined(OS_MACOSX)
+#endif
 
 #if defined(OS_WIN)
   struct UserTask {
@@ -190,6 +195,10 @@ class Browser : public WindowListObserver {
     base::string16 description;
     base::FilePath icon_path;
     int icon_index;
+
+    UserTask();
+    UserTask(const UserTask&);
+    ~UserTask();
   };
 
   // Add a custom task to jump list.
@@ -233,6 +242,10 @@ class Browser : public WindowListObserver {
 
   void PreMainMessageLoopRun();
 
+  // Stores the supplied |quit_closure|, to be run when the last Browser
+  // instance is destroyed.
+  void SetMainMessageLoopQuitClosure(base::OnceClosure quit_closure);
+
   void AddObserver(BrowserObserver* obs) { observers_.AddObserver(obs); }
 
   void RemoveObserver(BrowserObserver* obs) { observers_.RemoveObserver(obs); }
@@ -240,6 +253,7 @@ class Browser : public WindowListObserver {
   bool is_shutting_down() const { return is_shutdown_; }
   bool is_quiting() const { return is_quiting_; }
   bool is_ready() const { return is_ready_; }
+  const util::Promise& WhenReady(v8::Isolate* isolate);
 
  protected:
   // Returns the version of application bundle or executable file.
@@ -273,9 +287,14 @@ class Browser : public WindowListObserver {
   // The browser is being shutdown.
   bool is_shutdown_ = false;
 
+  // Null until/unless the default main message loop is running.
+  base::OnceClosure quit_main_message_loop_;
+
   int badge_count_ = 0;
 
-#if defined(OS_MACOSX)
+  std::unique_ptr<util::Promise> ready_promise_;
+
+#if defined(OS_LINUX) || defined(OS_MACOSX)
   base::DictionaryValue about_panel_options_;
 #endif
 

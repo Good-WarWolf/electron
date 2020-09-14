@@ -35,7 +35,9 @@ bool IsAltModifier(const content::NativeWebKeyboardEvent& event) {
 
 }  // namespace
 
-RootView::RootView(NativeWindow* window) : window_(window) {
+RootView::RootView(NativeWindow* window)
+    : window_(window),
+      last_focused_view_tracker_(std::make_unique<views::ViewTracker>()) {
   set_owned_by_client();
 }
 
@@ -88,10 +90,6 @@ void RootView::SetMenuBarVisibility(bool visible) {
   if (!window_->content_view() || !menu_bar_ || menu_bar_visible_ == visible)
     return;
 
-  // Always show the accelerator when the auto-hide menu bar shows.
-  if (menu_bar_autohide_)
-    menu_bar_->SetAcceleratorVisibility(visible);
-
   menu_bar_visible_ = visible;
   if (visible) {
     DCHECK_EQ(child_count(), 1);
@@ -120,15 +118,19 @@ void RootView::HandleKeyEvent(const content::NativeWebKeyboardEvent& event) {
   // Show the submenu when "Alt+Key" is pressed.
   if (event.GetType() == blink::WebInputEvent::kRawKeyDown &&
       !IsAltKey(event) && IsAltModifier(event)) {
-    if (!menu_bar_visible_ &&
-        (menu_bar_->HasAccelerator(event.windows_key_code)))
-      SetMenuBarVisibility(true);
-    menu_bar_->ActivateAccelerator(event.windows_key_code);
+    if (menu_bar_->HasAccelerator(event.windows_key_code)) {
+      if (!menu_bar_visible_) {
+        SetMenuBarVisibility(true);
+
+        View* focused_view = GetFocusManager()->GetFocusedView();
+        last_focused_view_tracker_->SetView(focused_view);
+        menu_bar_->RequestFocus();
+      }
+
+      menu_bar_->ActivateAccelerator(event.windows_key_code);
+    }
     return;
   }
-
-  if (!menu_bar_autohide_)
-    return;
 
   // Toggle the menu bar only when a single Alt is released.
   if (event.GetType() == blink::WebInputEvent::kRawKeyDown && IsAltKey(event)) {
@@ -138,11 +140,30 @@ void RootView::HandleKeyEvent(const content::NativeWebKeyboardEvent& event) {
              IsAltKey(event) && menu_bar_alt_pressed_) {
     // When a single Alt is released right after a Alt is pressed:
     menu_bar_alt_pressed_ = false;
-    SetMenuBarVisibility(!menu_bar_visible_);
+    if (menu_bar_autohide_)
+      SetMenuBarVisibility(!menu_bar_visible_);
+
+    View* focused_view = GetFocusManager()->GetFocusedView();
+    last_focused_view_tracker_->SetView(focused_view);
+    if (menu_bar_visible_) {
+      menu_bar_->RequestFocus();
+      // Show accelerators when menu bar is focused
+      menu_bar_->SetAcceleratorVisibility(true);
+    }
   } else {
     // When any other keys except single Alt have been pressed/released:
     menu_bar_alt_pressed_ = false;
   }
+}
+
+void RootView::RestoreFocus() {
+  View* last_focused_view = last_focused_view_tracker_->view();
+  if (last_focused_view) {
+    GetFocusManager()->SetFocusedViewWithReason(
+        last_focused_view, views::FocusManager::kReasonFocusRestore);
+  }
+  if (menu_bar_autohide_)
+    SetMenuBarVisibility(false);
 }
 
 void RootView::ResetAltState() {
@@ -182,6 +203,7 @@ void RootView::RegisterAcceleratorsWithFocusManager(AtomMenuModel* menu_model) {
     return;
   // Clear previous accelerators.
   UnregisterAcceleratorsWithFocusManager();
+
   views::FocusManager* focus_manager = GetFocusManager();
   // Register accelerators with focus manager.
   accelerator_util::GenerateAcceleratorTable(&accelerator_table_, menu_model);

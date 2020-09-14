@@ -7,10 +7,11 @@
 #include <utility>
 
 #include "atom/browser/atom_browser_context.h"
-#include "atom/browser/atom_browser_main_parts.h"
+#include "atom/browser/net/system_network_context_manager.h"
 #include "atom/common/native_mate_converters/callback.h"
 #include "atom/common/native_mate_converters/file_path_converter.h"
 #include "base/command_line.h"
+#include "chrome/browser/browser_process.h"
 #include "components/net_log/chrome_net_log.h"
 #include "content/public/browser/storage_partition.h"
 #include "native_mate/dictionary.h"
@@ -27,8 +28,8 @@ NetLog::NetLog(v8::Isolate* isolate, AtomBrowserContext* browser_context)
     : browser_context_(browser_context) {
   Init(isolate);
 
-  net_log_writer_ =
-      atom::AtomBrowserMainParts::Get()->net_log()->net_export_file_writer();
+  net_log_writer_ = g_browser_process->system_network_context_manager()
+                        ->GetNetExportFileWriter();
   net_log_writer_->AddObserver(this);
 }
 
@@ -43,8 +44,9 @@ void NetLog::StartLogging(mate::Arguments* args) {
     return;
   }
 
-  net_log::NetExportFileWriter::URLRequestContextGetterList context_getters = {
-      browser_context_->GetRequestContext()};
+  auto* network_context =
+      content::BrowserContext::GetDefaultStoragePartition(browser_context_)
+          ->GetNetworkContext();
 
   // TODO(deepak1556): Provide more flexibility to this module
   // by allowing customizations on the capturing options.
@@ -52,7 +54,7 @@ void NetLog::StartLogging(mate::Arguments* args) {
       log_path, net::NetLogCaptureMode::Default(),
       net_log::NetExportFileWriter::kNoLimit /* file size limit */,
       base::CommandLine::ForCurrentProcess()->GetCommandLineString(),
-      std::string(), context_getters);
+      std::string(), network_context);
 }
 
 std::string NetLog::GetLoggingState() const {
@@ -94,7 +96,7 @@ void NetLog::StopLogging(mate::Arguments* args) {
 
   if (IsCurrentlyLogging()) {
     stop_callback_queue_.emplace_back(callback);
-    net_log_writer_->StopNetLog(nullptr, nullptr);
+    net_log_writer_->StopNetLog(nullptr);
   } else {
     callback.Run(base::FilePath());
   }

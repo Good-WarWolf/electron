@@ -13,13 +13,14 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "base/win/windows_version.h"
-#include "vendor/breakpad/src/client/windows/crash_generation/client_info.h"
-#include "vendor/breakpad/src/client/windows/crash_generation/crash_generation_server.h"
-#include "vendor/breakpad/src/client/windows/sender/crash_report_sender.h"
+#include "breakpad/src/client/windows/crash_generation/client_info.h"
+#include "breakpad/src/client/windows/crash_generation/crash_generation_server.h"
+#include "breakpad/src/client/windows/sender/crash_report_sender.h"
 
 namespace breakpad {
 
@@ -132,7 +133,7 @@ bool CreateTopWindow(HINSTANCE instance,
   wcx.lpfnWndProc = CrashSvcWndProc;
   wcx.hInstance = instance;
   wcx.lpszClassName = class_name.c_str();
-  ATOM atom = ::RegisterClassExW(&wcx);
+  ::RegisterClassExW(&wcx);
   DWORD style = visible ? WS_POPUPWINDOW | WS_VISIBLE : WS_OVERLAPPED;
 
   // The window size is zero but being a popup window still shows in the
@@ -414,7 +415,7 @@ DWORD CrashService::AsyncSendDump(void* context) {
   const DWORD kSleepSchedule[] = {24 * kOneHour, 8 * kOneHour,    4 * kOneHour,
                                   kOneHour,      15 * kOneMinute, 0};
 
-  int retry_round = arraysize(kSleepSchedule) - 1;
+  int retry_round = base::size(kSleepSchedule) - 1;
 
   do {
     ::Sleep(kSleepSchedule[retry_round]);
@@ -487,7 +488,6 @@ PSECURITY_DESCRIPTOR CrashService::GetSecurityDescriptorForLowIntegrity() {
   // Build the SDDL string for the label.
   std::wstring sddl = L"S:(ML;;NW;;;S-1-16-4096)";
 
-  DWORD error = ERROR_SUCCESS;
   PSECURITY_DESCRIPTOR sec_desc = NULL;
 
   PACL sacl = NULL;

@@ -5,6 +5,7 @@
 #include "atom/browser/api/event_emitter.h"
 
 #include "atom/browser/api/event.h"
+#include "content/public/browser/render_frame_host.h"
 #include "native_mate/arguments.h"
 #include "native_mate/dictionary.h"
 #include "native_mate/object_template_builder.h"
@@ -34,7 +35,8 @@ v8::Local<v8::Object> CreateEventObject(v8::Isolate* isolate) {
   }
 
   return v8::Local<v8::ObjectTemplate>::New(isolate, event_template)
-      ->NewInstance();
+      ->NewInstance(isolate->GetCurrentContext())
+      .ToLocalChecked();
 }
 
 }  // namespace
@@ -55,7 +57,10 @@ v8::Local<v8::Object> CreateJSEvent(v8::Isolate* isolate,
   } else {
     event = CreateEventObject(isolate);
   }
-  mate::Dictionary(isolate, event).Set("sender", object);
+  mate::Dictionary dict(isolate, event);
+  dict.Set("sender", object);
+  if (sender)
+    dict.Set("frameId", sender->GetRoutingID());
   return event;
 }
 

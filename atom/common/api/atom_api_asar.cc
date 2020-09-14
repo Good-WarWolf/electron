@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "atom/common/asar/archive.h"
+#include "atom/common/asar/asar_util.h"
 #include "atom/common/native_mate_converters/callback.h"
 #include "atom/common/native_mate_converters/file_path_converter.h"
 #include "native_mate/arguments.h"
@@ -15,7 +16,7 @@
 #include "native_mate/wrappable.h"
 
 #include "atom/common/node_includes.h"
-#include "atom_natives.h"  // NOLINT: This file is generated with js2c.
+#include "third_party/electron_node/src/node_native_module.h"
 
 namespace {
 
@@ -39,8 +40,7 @@ class Archive : public mate::Wrappable<Archive> {
         .SetMethod("readdir", &Archive::Readdir)
         .SetMethod("realpath", &Archive::Realpath)
         .SetMethod("copyFileOut", &Archive::CopyFileOut)
-        .SetMethod("getFd", &Archive::GetFD)
-        .SetMethod("destroy", &Archive::Destroy);
+        .SetMethod("getFd", &Archive::GetFD);
   }
 
  protected:
@@ -113,32 +113,34 @@ class Archive : public mate::Wrappable<Archive> {
     return archive_->GetFD();
   }
 
-  // Free the resources used by archive.
-  void Destroy() { archive_.reset(); }
-
  private:
   std::unique_ptr<asar::Archive> archive_;
 
   DISALLOW_COPY_AND_ASSIGN(Archive);
 };
 
-void InitAsarSupport(v8::Isolate* isolate,
-                     v8::Local<v8::Value> process,
-                     v8::Local<v8::Value> require) {
+void InitAsarSupport(v8::Isolate* isolate, v8::Local<v8::Value> require) {
   // Evaluate asar_init.js.
-  v8::Local<v8::Script> asar_init =
-      v8::Script::Compile(node::asar_init_value.ToStringChecked(isolate));
-  v8::Local<v8::Value> result = asar_init->Run();
+  std::vector<v8::Local<v8::String>> asar_init_params = {
+      node::FIXED_ONE_BYTE_STRING(isolate, "require")};
+  std::vector<v8::Local<v8::Value>> asar_init_args = {require};
+  node::per_process::native_module_loader.CompileAndCall(
+      isolate->GetCurrentContext(), "electron/js2c/asar_init",
+      &asar_init_params, &asar_init_args, nullptr);
+}
 
-  // Initialize asar support.
-  if (result->IsFunction()) {
-    v8::Local<v8::Value> args[] = {
-        process,
-        require,
-        node::asar_value.ToStringChecked(isolate),
-    };
-    result.As<v8::Function>()->Call(result, 3, args);
+v8::Local<v8::Value> SplitPath(v8::Isolate* isolate,
+                               const base::FilePath& path) {
+  mate::Dictionary dict = mate::Dictionary::CreateEmpty(isolate);
+  base::FilePath asar_path, file_path;
+  if (asar::GetAsarArchivePath(path, &asar_path, &file_path, true)) {
+    dict.Set("isAsar", true);
+    dict.Set("asarPath", asar_path);
+    dict.Set("filePath", file_path);
+  } else {
+    dict.Set("isAsar", false);
   }
+  return dict.GetHandle();
 }
 
 void Initialize(v8::Local<v8::Object> exports,
@@ -147,9 +149,10 @@ void Initialize(v8::Local<v8::Object> exports,
                 void* priv) {
   mate::Dictionary dict(context->GetIsolate(), exports);
   dict.SetMethod("createArchive", &Archive::Create);
+  dict.SetMethod("splitPath", &SplitPath);
   dict.SetMethod("initAsarSupport", &InitAsarSupport);
 }
 
 }  // namespace
 
-NODE_BUILTIN_MODULE_CONTEXT_AWARE(atom_common_asar, Initialize)
+NODE_LINKED_MODULE_CONTEXT_AWARE(atom_common_asar, Initialize)

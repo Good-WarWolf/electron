@@ -43,10 +43,12 @@ v8::Local<v8::Value> MenuItemToV8(
     case content::MenuItem::CHECKABLE_OPTION:
     case content::MenuItem::GROUP:
       v8_item.Set("checked", item.checked);
+      FALLTHROUGH;
     case content::MenuItem::OPTION:
     case content::MenuItem::SUBMENU:
       v8_item.Set("label", item.label);
       v8_item.Set("enabled", item.enabled);
+      FALLTHROUGH;
     default:
       v8_item.Set("type", item.type);
   }
@@ -204,7 +206,7 @@ v8::Local<v8::Value> Converter<content::WebContents*>::ToV8(
     content::WebContents* val) {
   if (!val)
     return v8::Null(isolate);
-  return atom::api::WebContents::CreateFrom(isolate, val).ToV8();
+  return atom::api::WebContents::FromOrCreate(isolate, val).ToV8();
 }
 
 // static

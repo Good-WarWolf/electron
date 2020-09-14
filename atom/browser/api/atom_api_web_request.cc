@@ -4,35 +4,22 @@
 
 #include "atom/browser/api/atom_api_web_request.h"
 
+#include <set>
 #include <string>
+#include <utility>
 
 #include "atom/browser/atom_browser_context.h"
 #include "atom/browser/net/atom_network_delegate.h"
 #include "atom/common/native_mate_converters/callback.h"
 #include "atom/common/native_mate_converters/net_converter.h"
 #include "atom/common/native_mate_converters/value_converter.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "native_mate/dictionary.h"
 #include "native_mate/object_template_builder.h"
 
 using content::BrowserThread;
-
-namespace mate {
-
-template <>
-struct Converter<URLPattern> {
-  static bool FromV8(v8::Isolate* isolate,
-                     v8::Local<v8::Value> val,
-                     URLPattern* out) {
-    std::string pattern;
-    if (!ConvertFromV8(isolate, val, &pattern))
-      return false;
-    *out = URLPattern(URLPattern::SCHEME_ALL);
-    return out->Parse(pattern) == URLPattern::PARSE_SUCCESS;
-  }
-};
-
-}  // namespace mate
 
 namespace atom {
 
@@ -48,11 +35,9 @@ void CallNetworkDelegateMethod(
     URLPatterns patterns,
     Listener listener) {
   // Force creating network delegate.
-  net::URLRequestContext* context =
-      url_request_context_getter->GetURLRequestContext();
+  url_request_context_getter->GetURLRequestContext();
   // Then call the method.
-  AtomNetworkDelegate* network_delegate =
-      static_cast<AtomNetworkDelegate*>(context->network_delegate());
+  auto* network_delegate = url_request_context_getter->network_delegate();
   (network_delegate->*method)(type, std::move(patterns), std::move(listener));
 }
 
@@ -83,7 +68,25 @@ void WebRequest::SetListener(Method method, Event type, mate::Arguments* args) {
   // { urls }.
   URLPatterns patterns;
   mate::Dictionary dict;
-  args->GetNext(&dict) && dict.Get("urls", &patterns);
+  std::set<std::string> filter_patterns;
+
+  if (args->GetNext(&dict) && !dict.Get("urls", &filter_patterns)) {
+    args->ThrowError(
+        "onBeforeRequest parameter 'filter' must have property 'urls'.");
+    return;
+  }
+
+  URLPattern pattern(URLPattern::SCHEME_ALL);
+  for (const std::string& filter_pattern : filter_patterns) {
+    const URLPattern::ParseResult result = pattern.Parse(filter_pattern);
+    if (result == URLPattern::ParseResult::kSuccess) {
+      patterns.insert(pattern);
+    } else {
+      const char* error_type = URLPattern::GetParseResultString(result);
+      args->ThrowError("Invalid url pattern " + filter_pattern + ": " +
+                       error_type);
+    }
+  }
 
   // Function or null.
   v8::Local<v8::Value> value;
@@ -98,8 +101,8 @@ void WebRequest::SetListener(Method method, Event type, mate::Arguments* args) {
       browser_context_->GetRequestContext());
   if (!url_request_context_getter)
     return;
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
+  base::PostTaskWithTraits(
+      FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&CallNetworkDelegateMethod<Method, Event, Listener>,
                      base::RetainedRef(url_request_context_getter), method,
                      type, std::move(patterns), std::move(listener)));

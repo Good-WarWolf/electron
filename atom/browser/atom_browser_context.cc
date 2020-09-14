@@ -9,29 +9,26 @@
 #include "atom/browser/atom_blob_reader.h"
 #include "atom/browser/atom_browser_main_parts.h"
 #include "atom/browser/atom_download_manager_delegate.h"
+#include "atom/browser/atom_paths.h"
 #include "atom/browser/atom_permission_manager.h"
-#include "atom/browser/browser.h"
 #include "atom/browser/cookie_change_notifier.h"
 #include "atom/browser/net/resolve_proxy_helper.h"
 #include "atom/browser/pref_store_delegate.h"
+#include "atom/browser/special_storage_policy.h"
+#include "atom/browser/ui/inspectable_web_contents_impl.h"
 #include "atom/browser/web_view_manager.h"
-#include "atom/common/atom_version.h"
-#include "atom/common/chrome_version.h"
+#include "atom/browser/zoom_level_delegate.h"
+#include "atom/common/application_info.h"
 #include "atom/common/options_switches.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
-#include "brightray/browser/brightray_paths.h"
-#include "brightray/browser/inspectable_web_contents_impl.h"
-#include "brightray/browser/special_storage_policy.h"
-#include "brightray/browser/zoom_level_delegate.h"
-#include "brightray/common/application_info.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
+#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -42,7 +39,6 @@
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
-#include "content/public/common/user_agent.h"
 #include "net/base/escape.h"
 
 using content::BrowserThread;
@@ -50,14 +46,6 @@ using content::BrowserThread;
 namespace atom {
 
 namespace {
-
-std::string RemoveWhitespace(const std::string& str) {
-  std::string trimmed;
-  if (base::RemoveChars(str, " ", &trimmed))
-    return trimmed;
-  else
-    return str;
-}
 
 // Convert string to lower case and escape it.
 std::string MakePartitionName(const std::string& input) {
@@ -73,24 +61,12 @@ AtomBrowserContext::AtomBrowserContext(const std::string& partition,
                                        bool in_memory,
                                        const base::DictionaryValue& options)
     : base::RefCountedDeleteOnSequence<AtomBrowserContext>(
-          base::SequencedTaskRunnerHandle::Get()),
+          base::ThreadTaskRunnerHandle::Get()),
       in_memory_pref_store_(nullptr),
-      storage_policy_(new brightray::SpecialStoragePolicy),
+      storage_policy_(new SpecialStoragePolicy),
       in_memory_(in_memory),
       weak_factory_(this) {
-  // Construct user agent string.
-  Browser* browser = Browser::Get();
-  std::string name = RemoveWhitespace(browser->GetName());
-  std::string user_agent;
-  if (name == ATOM_PRODUCT_NAME) {
-    user_agent = "Chrome/" CHROME_VERSION_STRING " " ATOM_PRODUCT_NAME
-                 "/" ATOM_VERSION_STRING;
-  } else {
-    user_agent = base::StringPrintf(
-        "%s/%s Chrome/%s " ATOM_PRODUCT_NAME "/" ATOM_VERSION_STRING,
-        name.c_str(), browser->GetVersion().c_str(), CHROME_VERSION_STRING);
-  }
-  user_agent_ = content::BuildUserAgentFromProduct(user_agent);
+  user_agent_ = GetApplicationUserAgent();
 
   // Read options.
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -100,11 +76,10 @@ AtomBrowserContext::AtomBrowserContext(const std::string& partition,
   base::StringToInt(command_line->GetSwitchValueASCII(switches::kDiskCacheSize),
                     &max_cache_size_);
 
-  if (!base::PathService::Get(brightray::DIR_USER_DATA, &path_)) {
-    base::PathService::Get(brightray::DIR_APP_DATA, &path_);
-    path_ = path_.Append(
-        base::FilePath::FromUTF8Unsafe(brightray::GetApplicationName()));
-    base::PathService::Override(brightray::DIR_USER_DATA, path_);
+  if (!base::PathService::Get(DIR_USER_DATA, &path_)) {
+    base::PathService::Get(DIR_APP_DATA, &path_);
+    path_ = path_.Append(base::FilePath::FromUTF8Unsafe(GetApplicationName()));
+    base::PathService::Override(DIR_USER_DATA, path_);
   }
 
   if (!in_memory && !partition.empty())
@@ -120,6 +95,8 @@ AtomBrowserContext::AtomBrowserContext(const std::string& partition,
   proxy_config_monitor_ = std::make_unique<ProxyConfigMonitor>(prefs_.get());
   io_handle_ = new URLRequestContextGetter::Handle(weak_factory_.GetWeakPtr());
   cookie_change_notifier_ = std::make_unique<CookieChangeNotifier>(this);
+
+  BrowserContextDependencyManager::GetInstance()->MarkBrowserContextLive(this);
 }
 
 AtomBrowserContext::~AtomBrowserContext() {
@@ -127,6 +104,9 @@ AtomBrowserContext::~AtomBrowserContext() {
   NotifyWillBeDestroyed(this);
   ShutdownStoragePartitions();
   io_handle_->ShutdownOnUIThread();
+  // Notify any keyed services of browser context destruction.
+  BrowserContextDependencyManager::GetInstance()->DestroyBrowserContextServices(
+      this);
 }
 
 void AtomBrowserContext::InitPrefs() {
@@ -147,9 +127,9 @@ void AtomBrowserContext::InitPrefs() {
   registry->RegisterFilePathPref(prefs::kDownloadDefaultDirectory,
                                  download_dir);
   registry->RegisterDictionaryPref(prefs::kDevToolsFileSystemPaths);
-  brightray::InspectableWebContentsImpl::RegisterPrefs(registry.get());
-  brightray::MediaDeviceIDSalt::RegisterPrefs(registry.get());
-  brightray::ZoomLevelDelegate::RegisterPrefs(registry.get());
+  InspectableWebContentsImpl::RegisterPrefs(registry.get());
+  MediaDeviceIDSalt::RegisterPrefs(registry.get());
+  ZoomLevelDelegate::RegisterPrefs(registry.get());
   PrefProxyConfigTrackerImpl::RegisterPrefs(registry.get());
 
   prefs_ = prefs_factory.Create(
@@ -205,7 +185,7 @@ content::ResourceContext* AtomBrowserContext::GetResourceContext() {
 
 std::string AtomBrowserContext::GetMediaDeviceIDSalt() {
   if (!media_device_id_salt_.get())
-    media_device_id_salt_.reset(new brightray::MediaDeviceIDSalt(prefs_.get()));
+    media_device_id_salt_.reset(new MediaDeviceIDSalt(prefs_.get()));
   return media_device_id_salt_->GetSalt();
 }
 
@@ -213,8 +193,7 @@ std::unique_ptr<content::ZoomLevelDelegate>
 AtomBrowserContext::CreateZoomLevelDelegate(
     const base::FilePath& partition_path) {
   if (!IsOffTheRecord()) {
-    return std::make_unique<brightray::ZoomLevelDelegate>(prefs(),
-                                                          partition_path);
+    return std::make_unique<ZoomLevelDelegate>(prefs(), partition_path);
   }
   return std::unique_ptr<content::ZoomLevelDelegate>();
 }
@@ -235,7 +214,8 @@ content::BrowserPluginGuestManager* AtomBrowserContext::GetGuestManager() {
   return guest_manager_.get();
 }
 
-content::PermissionManager* AtomBrowserContext::GetPermissionManager() {
+content::PermissionControllerDelegate*
+AtomBrowserContext::GetPermissionControllerDelegate() {
   if (!permission_manager_.get())
     permission_manager_.reset(new AtomPermissionManager);
   return permission_manager_.get();
@@ -278,6 +258,11 @@ AtomBrowserContext::GetBackgroundSyncController() {
 
 content::BrowsingDataRemoverDelegate*
 AtomBrowserContext::GetBrowsingDataRemoverDelegate() {
+  return nullptr;
+}
+
+content::ClientHintsControllerDelegate*
+AtomBrowserContext::GetClientHintsControllerDelegate() {
   return nullptr;
 }
 

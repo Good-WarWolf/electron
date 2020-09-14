@@ -14,6 +14,8 @@
 #include "atom/browser/native_window.h"
 #include "atom/browser/native_window_observer.h"
 #include "atom/common/api/atom_api_native_image.h"
+#include "base/task/post_task.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "native_mate/handle.h"
 
@@ -61,7 +63,11 @@ class TopLevelWindow : public mate::TrackableObject<TopLevelWindow>,
   void OnWindowUnmaximize() override;
   void OnWindowMinimize() override;
   void OnWindowRestore() override;
+  void OnWindowWillResize(const gfx::Rect& new_bounds,
+                          bool* prevent_default) override;
   void OnWindowResize() override;
+  void OnWindowWillMove(const gfx::Rect& new_bounds,
+                        bool* prevent_default) override;
   void OnWindowMove() override;
   void OnWindowMoved() override;
   void OnWindowScrollTouchBegin() override;
@@ -73,7 +79,8 @@ class TopLevelWindow : public mate::TrackableObject<TopLevelWindow>,
   void OnWindowLeaveFullScreen() override;
   void OnWindowEnterHtmlFullScreen() override;
   void OnWindowLeaveHtmlFullScreen() override;
-  void OnExecuteWindowsCommand(const std::string& command_name) override;
+  void OnWindowAlwaysOnTopChanged() override;
+  void OnExecuteAppCommand(const std::string& command_name) override;
   void OnTouchBarItemResult(const std::string& item_id,
                             const base::DictionaryValue& details) override;
   void OnNewWindowForTab() override;
@@ -109,6 +116,8 @@ class TopLevelWindow : public mate::TrackableObject<TopLevelWindow>,
   std::vector<int> GetContentSize();
   void SetContentBounds(const gfx::Rect& bounds, mate::Arguments* args);
   gfx::Rect GetContentBounds();
+  bool IsNormal();
+  gfx::Rect GetNormalBounds();
   void SetMinimumSize(int width, int height);
   std::vector<int> GetMinimumSize();
   void SetMaximumSize(int width, int height);
@@ -156,13 +165,18 @@ class TopLevelWindow : public mate::TrackableObject<TopLevelWindow>,
   void SetContentProtection(bool enable);
   void SetFocusable(bool focusable);
   void SetMenu(v8::Isolate* isolate, v8::Local<v8::Value> menu);
+  void RemoveMenu();
   void SetParentWindow(v8::Local<v8::Value> value, mate::Arguments* args);
   virtual void SetBrowserView(v8::Local<v8::Value> value);
+  virtual void AddBrowserView(v8::Local<v8::Value> value);
+  virtual void RemoveBrowserView(v8::Local<v8::Value> value);
+  virtual std::vector<v8::Local<v8::Value>> GetBrowserViews() const;
+  virtual void ResetBrowserViews();
   v8::Local<v8::Value> GetNativeWindowHandle();
   void SetProgressBar(double progress, mate::Arguments* args);
   void SetOverlayIcon(const gfx::Image& overlay,
                       const std::string& description);
-  void SetVisibleOnAllWorkspaces(bool visible);
+  void SetVisibleOnAllWorkspaces(bool visible, mate::Arguments* args);
   bool IsVisibleOnAllWorkspaces();
   void SetAutoHideCursor(bool auto_hide);
   virtual void SetVibrancy(v8::Isolate* isolate, v8::Local<v8::Value> value);
@@ -175,6 +189,7 @@ class TopLevelWindow : public mate::TrackableObject<TopLevelWindow>,
   void MoveTabToNewWindow();
   void ToggleTabBar();
   void AddTabbedWindow(NativeWindow* window, mate::Arguments* args);
+  void SetWindowButtonVisibility(bool visible, mate::Arguments* args);
   void SetAutoHideMenuBar(bool auto_hide);
   bool IsMenuBarAutoHide();
   void SetMenuBarVisibility(bool visible);
@@ -187,7 +202,7 @@ class TopLevelWindow : public mate::TrackableObject<TopLevelWindow>,
   v8::Local<v8::Value> GetContentView() const;
   v8::Local<v8::Value> GetParentWindow() const;
   std::vector<v8::Local<v8::Object>> GetChildWindows() const;
-  v8::Local<v8::Value> GetBrowserView() const;
+  v8::Local<v8::Value> GetBrowserView(mate::Arguments* args) const;
   bool IsModal() const;
 
   // Extra APIs added in JS.
@@ -216,10 +231,10 @@ class TopLevelWindow : public mate::TrackableObject<TopLevelWindow>,
   // Remove this window from parent window's |child_windows_|.
   void RemoveFromParentChildWindows();
 
-  template<typename... Args>
+  template <typename... Args>
   void EmitEventSoon(base::StringPiece eventName) {
-    content::BrowserThread::PostTask(
-        content::BrowserThread::UI, FROM_HERE,
+    base::PostTaskWithTraits(
+        FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(base::IgnoreResult(&TopLevelWindow::Emit<Args...>),
                        weak_factory_.GetWeakPtr(), eventName));
   }
@@ -230,7 +245,7 @@ class TopLevelWindow : public mate::TrackableObject<TopLevelWindow>,
 #endif
 
   v8::Global<v8::Value> content_view_;
-  v8::Global<v8::Value> browser_view_;
+  std::map<int32_t, v8::Global<v8::Value>> browser_views_;
   v8::Global<v8::Value> menu_;
   v8::Global<v8::Value> parent_window_;
   KeyWeakMap<int> child_windows_;

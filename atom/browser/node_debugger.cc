@@ -4,9 +4,13 @@
 
 #include "atom/browser/node_debugger.h"
 
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "base/command_line.h"
+#include "base/logging.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "libplatform/libplatform.h"
 #include "native_mate/dictionary.h"
@@ -19,35 +23,46 @@ NodeDebugger::NodeDebugger(node::Environment* env) : env_(env) {}
 
 NodeDebugger::~NodeDebugger() {}
 
-void NodeDebugger::Start(node::MultiIsolatePlatform* platform) {
+void NodeDebugger::Start() {
   auto* inspector = env_->inspector_agent();
   if (inspector == nullptr)
     return;
 
-  node::DebugOptions options;
+  std::vector<std::string> args;
   for (auto& arg : base::CommandLine::ForCurrentProcess()->argv()) {
 #if defined(OS_WIN)
-    const std::string nice_arg = base::UTF16ToUTF8(arg);
+    args.push_back(base::UTF16ToUTF8(arg));
 #else
-    const std::string& nice_arg = arg;
+    args.push_back(arg);
 #endif
-    // Stop handling arguments after a "--" to be consistent with Chromium
-    if (nice_arg == "--")
-      break;
-
-    options.ParseOption("Electron", nice_arg);
   }
 
-  // Set process._debugWaitConnect if --inspect-brk was specified to stop
-  // the debugger on the first line
-  if (options.wait_for_connect()) {
-    mate::Dictionary process(env_->isolate(), env_->process_object());
-    process.Set("_breakFirstLine", true);
+  node::DebugOptions options;
+  node::options_parser::DebugOptionsParser options_parser;
+  std::vector<std::string> exec_args;
+  std::vector<std::string> v8_args;
+  std::vector<std::string> errors;
+
+  options_parser.Parse(&args, &exec_args, &v8_args, &options,
+                       node::options_parser::kDisallowedInEnvironment, &errors);
+
+  if (!errors.empty()) {
+    // TODO(jeremy): what's the appropriate behaviour here?
+    LOG(ERROR) << "Error parsing node options: "
+               << base::JoinString(errors, " ");
   }
 
-  inspector->Start(static_cast<node::NodePlatform*>(platform), nullptr,
-                   options);
-  DCHECK(env_->inspector_agent()->IsStarted());
+  const char* path = "";
+  if (inspector->Start(path, options,
+                       std::make_shared<node::HostPort>(options.host_port),
+                       true /* is_main */))
+    DCHECK(env_->inspector_agent()->IsListening());
+}
+
+void NodeDebugger::Stop() {
+  auto* inspector = env_->inspector_agent();
+  if (inspector && inspector->IsListening())
+    inspector->Stop();
 }
 
 }  // namespace atom

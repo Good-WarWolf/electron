@@ -5,6 +5,7 @@
 #include "atom/common/asar/archive.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "atom/common/asar/scoped_temporary_file.h"
@@ -14,7 +15,7 @@
 #include "base/logging.h"
 #include "base/pickle.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 
@@ -221,13 +222,13 @@ bool Archive::Stat(const base::FilePath& path, Stats* stats) {
   if (!GetNodeFromPath(path.AsUTF8Unsafe(), header_.get(), &node))
     return false;
 
-  if (node->HasKey("link")) {
+  if (node->FindKey("link")) {
     stats->is_file = false;
     stats->is_link = true;
     return true;
   }
 
-  if (node->HasKey("files")) {
+  if (node->FindKey("files")) {
     stats->is_file = false;
     stats->is_directory = true;
     return true;

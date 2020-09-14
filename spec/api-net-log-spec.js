@@ -1,4 +1,5 @@
-const assert = require('assert')
+const chai = require('chai')
+const dirtyChai = require('dirty-chai')
 const http = require('http')
 const fs = require('fs')
 const os = require('os')
@@ -10,6 +11,8 @@ const appPath = path.join(__dirname, 'fixtures', 'api', 'net-log')
 const dumpFile = path.join(os.tmpdir(), 'net_log.json')
 const dumpFileDynamic = path.join(os.tmpdir(), 'net_log_dynamic.json')
 
+const { expect } = chai
+chai.use(dirtyChai)
 const isCI = remote.getGlobal('isCi')
 const netLog = session.fromPartition('net-log').netLog
 
@@ -17,7 +20,7 @@ describe('netLog module', () => {
   let server
   const connections = new Set()
 
-  before((done) => {
+  before(done => {
     server = http.createServer()
     server.listen(0, '127.0.0.1', () => {
       server.url = `http://127.0.0.1:${server.address().port}`
@@ -34,7 +37,7 @@ describe('netLog module', () => {
     })
   })
 
-  after((done) => {
+  after(done => {
     for (const connection of connections) {
       connection.destroy()
     }
@@ -57,36 +60,35 @@ describe('netLog module', () => {
     }
   })
 
-  it('should begin and end logging to file when .startLogging() and .stopLogging() is called', (done) => {
-    assert(!netLog.currentlyLogging)
-    assert.equal(netLog.currentlyLoggingPath, '')
+  it('should begin and end logging to file when .startLogging() and .stopLogging() is called', done => {
+    expect(netLog.currentlyLogging).to.be.false()
+    expect(netLog.currentlyLoggingPath).to.equal('')
 
     netLog.startLogging(dumpFileDynamic)
 
-    assert(netLog.currentlyLogging)
-    assert.equal(netLog.currentlyLoggingPath, dumpFileDynamic)
+    expect(netLog.currentlyLogging).to.be.true()
+    expect(netLog.currentlyLoggingPath).to.equal(dumpFileDynamic)
 
     netLog.stopLogging((path) => {
-      assert(!netLog.currentlyLogging)
-      assert.equal(netLog.currentlyLoggingPath, '')
+      expect(netLog.currentlyLogging).to.be.false()
+      expect(netLog.currentlyLoggingPath).to.equal('')
 
-      assert.equal(path, dumpFileDynamic)
-
-      assert(fs.existsSync(dumpFileDynamic))
+      expect(path).to.equal(dumpFileDynamic)
+      expect(fs.existsSync(dumpFileDynamic)).to.be.true()
 
       done()
     })
   })
 
-  it('should silence when .stopLogging() is called without calling .startLogging()', (done) => {
-    assert(!netLog.currentlyLogging)
-    assert.equal(netLog.currentlyLoggingPath, '')
+  it('should silence when .stopLogging() is called without calling .startLogging()', done => {
+    expect(netLog.currentlyLogging).to.be.false()
+    expect(netLog.currentlyLoggingPath).to.equal('')
 
-    netLog.stopLogging((path) => {
-      assert(!netLog.currentlyLogging)
-      assert.equal(netLog.currentlyLoggingPath, '')
+    netLog.stopLogging(path => {
+      expect(netLog.currentlyLogging).to.be.false()
+      expect(netLog.currentlyLoggingPath).to.equal('')
 
-      assert.equal(path, '')
+      expect(path).to.equal('')
 
       done()
     })
@@ -106,13 +108,14 @@ describe('netLog module', () => {
         }
       })
 
-    appProcess.once('close', () => {
-      assert(fs.existsSync(dumpFile))
+    appProcess.once('exit', () => {
+      expect(fs.existsSync(dumpFile)).to.be.true()
       done()
     })
   })
 
-  it('should begin and end logging automtically when --log-net-log is passed, and behave correctly when .startLogging() and .stopLogging() is called', (done) => {
+  // FIXME(deepak1556): Ch69 follow up.
+  it('should begin and end logging automtically when --log-net-log is passed, and behave correctly when .startLogging() and .stopLogging() is called', done => {
     if (isCI && process.platform === 'linux') {
       done()
       return
@@ -128,20 +131,20 @@ describe('netLog module', () => {
         }
       })
 
-    appProcess.once('close', () => {
-      assert(fs.existsSync(dumpFile))
-      assert(fs.existsSync(dumpFileDynamic))
+    appProcess.once('exit', () => {
+      expect(fs.existsSync(dumpFile)).to.be.true()
+      expect(fs.existsSync(dumpFileDynamic)).to.be.true()
       done()
     })
   })
 
-  it('should end logging automatically when only .startLogging() is called', (done) => {
+  it('should end logging automatically when only .startLogging() is called', done => {
     if (isCI && process.platform === 'linux') {
       done()
       return
     }
 
-    let appProcess = ChildProcess.spawn(remote.process.execPath,
+    const appProcess = ChildProcess.spawn(remote.process.execPath,
       [appPath], {
         env: {
           TEST_REQUEST_URL: server.url,
@@ -150,7 +153,7 @@ describe('netLog module', () => {
       })
 
     appProcess.once('close', () => {
-      assert(fs.existsSync(dumpFileDynamic))
+      expect(fs.existsSync(dumpFileDynamic)).to.be.true()
       done()
     })
   })

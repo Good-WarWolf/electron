@@ -4,6 +4,8 @@
 
 #include "atom/common/native_mate_converters/value_converter.h"
 
+#include <memory>
+
 #include "atom/common/native_mate_converters/v8_value_converter.h"
 #include "base/values.h"
 
@@ -43,6 +45,7 @@ bool Converter<base::Value>::FromV8(v8::Isolate* isolate,
     return false;
   }
 }
+
 v8::Local<v8::Value> Converter<base::Value>::ToV8(v8::Isolate* isolate,
                                                   const base::Value& val) {
   atom::V8ValueConverter converter;

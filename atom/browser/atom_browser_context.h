@@ -10,10 +10,10 @@
 #include <string>
 #include <vector>
 
+#include "atom/browser/media/media_device_id_salt.h"
 #include "atom/browser/net/url_request_context_getter.h"
 #include "base/memory/ref_counted_delete_on_sequence.h"
 #include "base/memory/weak_ptr.h"
-#include "brightray/browser/media/media_device_id_salt.h"
 #include "chrome/browser/net/proxy_config_monitor.h"
 #include "content/public/browser/browser_context.h"
 
@@ -21,7 +21,7 @@ class PrefRegistrySimple;
 class PrefService;
 class ValueMapPrefStore;
 
-namespace brightray {
+namespace storage {
 class SpecialStoragePolicy;
 }
 
@@ -33,6 +33,7 @@ class AtomDownloadManagerDelegate;
 class AtomPermissionManager;
 class CookieChangeNotifier;
 class ResolveProxyHelper;
+class SpecialStoragePolicy;
 class WebViewManager;
 
 class AtomBrowserContext
@@ -80,12 +81,15 @@ class AtomBrowserContext
   std::string GetMediaDeviceIDSalt() override;
   content::DownloadManagerDelegate* GetDownloadManagerDelegate() override;
   content::BrowserPluginGuestManager* GetGuestManager() override;
-  content::PermissionManager* GetPermissionManager() override;
+  content::PermissionControllerDelegate* GetPermissionControllerDelegate()
+      override;
   storage::SpecialStoragePolicy* GetSpecialStoragePolicy() override;
   net::URLRequestContextGetter* CreateRequestContext(
       content::ProtocolHandlerMap* protocol_handlers,
       content::URLRequestInterceptorScopedVector request_interceptors) override;
   net::URLRequestContextGetter* CreateMediaRequestContext() override;
+  content::ClientHintsControllerDelegate* GetClientHintsControllerDelegate()
+      override;
 
   CookieChangeNotifier* cookie_change_notifier() const {
     return cookie_change_notifier_.get();
@@ -150,7 +154,7 @@ class AtomBrowserContext
   std::unique_ptr<WebViewManager> guest_manager_;
   std::unique_ptr<AtomPermissionManager> permission_manager_;
   std::unique_ptr<AtomBlobReader> blob_reader_;
-  std::unique_ptr<brightray::MediaDeviceIDSalt> media_device_id_salt_;
+  std::unique_ptr<MediaDeviceIDSalt> media_device_id_salt_;
   scoped_refptr<ResolveProxyHelper> resolve_proxy_helper_;
   scoped_refptr<storage::SpecialStoragePolicy> storage_policy_;
 

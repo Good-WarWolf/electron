@@ -4,10 +4,12 @@
 
 #include "atom/browser/api/atom_api_menu.h"
 
+#include <utility>
+
 #include "atom/browser/native_window.h"
 #include "atom/common/native_mate_converters/accelerator_converter.h"
-#include "atom/common/native_mate_converters/callback.h"
 #include "atom/common/native_mate_converters/image_converter.h"
+#include "atom/common/native_mate_converters/once_callback.h"
 #include "atom/common/native_mate_converters/string16_converter.h"
 #include "native_mate/constructor.h"
 #include "native_mate/dictionary.h"
@@ -90,7 +92,7 @@ void Menu::ExecuteCommand(int command_id, int flags) {
                        command_id);
 }
 
-void Menu::MenuWillShow(ui::SimpleMenuModel* source) {
+void Menu::OnMenuWillShow(ui::SimpleMenuModel* source) {
   v8::Locker locker(isolate());
   v8::HandleScope handle_scope(isolate());
   menu_will_show_.Run(GetWrapper());
@@ -163,6 +165,12 @@ base::string16 Menu::GetSublabelAt(int index) const {
   return model_->GetSublabelAt(index);
 }
 
+base::string16 Menu::GetAcceleratorTextAt(int index) const {
+  ui::Accelerator accelerator;
+  model_->GetAcceleratorAtWithParams(index, true, &accelerator);
+  return accelerator.GetShortcutText();
+}
+
 bool Menu::IsItemCheckedAt(int index) const {
   return model_->IsItemCheckedAt(index);
 }
@@ -181,6 +189,16 @@ void Menu::OnMenuWillClose() {
 
 void Menu::OnMenuWillShow() {
   Emit("menu-will-show");
+}
+
+base::OnceClosure Menu::BindSelfToClosure(base::OnceClosure callback) {
+  // return ((callback, ref) => { callback() }).bind(null, callback, this)
+  v8::Global<v8::Value> ref(isolate(), GetWrapper());
+  return base::BindOnce(
+      [](base::OnceClosure callback, v8::Global<v8::Value> ref) {
+        std::move(callback).Run();
+      },
+      std::move(callback), std::move(ref));
 }
 
 // static
@@ -203,6 +221,7 @@ void Menu::BuildPrototype(v8::Isolate* isolate,
       .SetMethod("getCommandIdAt", &Menu::GetCommandIdAt)
       .SetMethod("getLabelAt", &Menu::GetLabelAt)
       .SetMethod("getSublabelAt", &Menu::GetSublabelAt)
+      .SetMethod("getAcceleratorTextAt", &Menu::GetAcceleratorTextAt)
       .SetMethod("isItemCheckedAt", &Menu::IsItemCheckedAt)
       .SetMethod("isEnabledAt", &Menu::IsEnabledAt)
       .SetMethod("isVisibleAt", &Menu::IsVisibleAt)
@@ -226,7 +245,9 @@ void Initialize(v8::Local<v8::Object> exports,
   Menu::SetConstructor(isolate, base::Bind(&Menu::New));
 
   mate::Dictionary dict(isolate, exports);
-  dict.Set("Menu", Menu::GetConstructor(isolate)->GetFunction());
+  dict.Set(
+      "Menu",
+      Menu::GetConstructor(isolate)->GetFunction(context).ToLocalChecked());
 #if defined(OS_MACOSX)
   dict.SetMethod("setApplicationMenu", &Menu::SetApplicationMenu);
   dict.SetMethod("sendActionToFirstResponder",
@@ -236,4 +257,4 @@ void Initialize(v8::Local<v8::Object> exports,
 
 }  // namespace
 
-NODE_BUILTIN_MODULE_CONTEXT_AWARE(atom_browser_menu, Initialize)
+NODE_LINKED_MODULE_CONTEXT_AWARE(atom_browser_menu, Initialize)

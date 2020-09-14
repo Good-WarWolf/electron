@@ -9,8 +9,9 @@ property of a `Session`.
 
 The methods of `WebRequest` accept an optional `filter` and a `listener`. The
 `listener` will be called with `listener(details)` when the API's event has
-happened. The `details` object describes the request. Passing `null`
-as `listener` will unsubscribe from the event.
+happened. The `details` object describes the request.
+
+⚠️ Only the last attached `listener` will be used. Passing `null` as `listener` will unsubscribe from the event.
 
 The `filter` object has a `urls` property which is an Array of URL
 patterns that will be used to filter out the requests that do not match the URL
@@ -22,7 +23,7 @@ called with a `response` object when `listener` has done its work.
 An example of adding `User-Agent` header for requests:
 
 ```javascript
-const {session} = require('electron')
+const { session } = require('electron')
 
 // Modify the user agent for all requests to the following urls.
 const filter = {
@@ -31,7 +32,7 @@ const filter = {
 
 session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
   details.requestHeaders['User-Agent'] = 'MyAgent'
-  callback({cancel: false, requestHeaders: details.requestHeaders})
+  callback({ requestHeaders: details.requestHeaders })
 })
 ```
 
@@ -44,13 +45,14 @@ The following methods are available on instances of `WebRequest`:
 * `filter` Object (optional)
   * `urls` String[] - Array of URL patterns that will be used to filter out the
         requests that do not match the URL patterns.
-* `listener` Function
+* `listener` Function | null
   * `details` Object
     * `id` Integer
     * `url` String
     * `method` String
     * `webContentsId` Integer (optional)
     * `resourceType` String
+    * `referrer` String
     * `timestamp` Double
     * `uploadData` [UploadData[]](structures/upload-data.md)
   * `callback` Function
@@ -66,18 +68,34 @@ The `uploadData` is an array of `UploadData` objects.
 
 The `callback` has to be called with an `response` object.
 
+Some examples of valid `urls`:
+
+```js
+'http://foo:1234/'
+'http://foo.com/'
+'http://foo:1234/bar'
+'*://*/*'
+'*://example.com/*'
+'*://example.com/foo/*'
+'http://*.foo:1234/'
+'file://foo:1234/bar'
+'http://foo:*/'
+'*://www.foo.com/'
+```
+
 #### `webRequest.onBeforeSendHeaders([filter, ]listener)`
 
 * `filter` Object (optional)
   * `urls` String[] - Array of URL patterns that will be used to filter out the
         requests that do not match the URL patterns.
-* `listener` Function
+* `listener` Function | null
   * `details` Object
     * `id` Integer
     * `url` String
     * `method` String
     * `webContentsId` Integer (optional)
     * `resourceType` String
+    * `referrer` String
     * `timestamp` Double
     * `requestHeaders` Object
   * `callback` Function
@@ -97,13 +115,14 @@ The `callback` has to be called with an `response` object.
 * `filter` Object (optional)
   * `urls` String[] - Array of URL patterns that will be used to filter out the
         requests that do not match the URL patterns.
-* `listener` Function
+* `listener` Function | null
   * `details` Object
     * `id` Integer
     * `url` String
     * `method` String
     * `webContentsId` Integer (optional)
     * `resourceType` String
+    * `referrer` String
     * `timestamp` Double
     * `requestHeaders` Object
 
@@ -116,20 +135,21 @@ response are visible by the time this listener is fired.
 * `filter` Object (optional)
   * `urls` String[] - Array of URL patterns that will be used to filter out the
         requests that do not match the URL patterns.
-* `listener` Function
+* `listener` Function | null
   * `details` Object
     * `id` Integer
     * `url` String
     * `method` String
     * `webContentsId` Integer (optional)
     * `resourceType` String
+    * `referrer` String
     * `timestamp` Double
     * `statusLine` String
     * `statusCode` Integer
     * `responseHeaders` Object
   * `callback` Function
     * `response` Object
-      * `cancel` Boolean
+      * `cancel` Boolean (optional)
       * `responseHeaders` Object (optional) - When provided, the server is assumed
         to have responded with these headers.
       * `statusLine` String (optional) - Should be provided when overriding
@@ -146,13 +166,14 @@ The `callback` has to be called with an `response` object.
 * `filter` Object (optional)
   * `urls` String[] - Array of URL patterns that will be used to filter out the
         requests that do not match the URL patterns.
-* `listener` Function
+* `listener` Function | null
   * `details` Object
     * `id` Integer
     * `url` String
     * `method` String
     * `webContentsId` Integer (optional)
     * `resourceType` String
+    * `referrer` String
     * `timestamp` Double
     * `responseHeaders` Object
     * `fromCache` Boolean - Indicates whether the response was fetched from disk
@@ -169,13 +190,14 @@ and response headers are available.
 * `filter` Object (optional)
   * `urls` String[] - Array of URL patterns that will be used to filter out the
         requests that do not match the URL patterns.
-* `listener` Function
+* `listener` Function | null
   * `details` Object
     * `id` Integer
     * `url` String
     * `method` String
     * `webContentsId` Integer (optional)
     * `resourceType` String
+    * `referrer` String
     * `timestamp` Double
     * `redirectURL` String
     * `statusCode` Integer
@@ -192,13 +214,14 @@ redirect is about to occur.
 * `filter` Object (optional)
   * `urls` String[] - Array of URL patterns that will be used to filter out the
         requests that do not match the URL patterns.
-* `listener` Function
+* `listener` Function | null
   * `details` Object
     * `id` Integer
     * `url` String
     * `method` String
     * `webContentsId` Integer (optional)
     * `resourceType` String
+    * `referrer` String
     * `timestamp` Double
     * `responseHeaders` Object
     * `fromCache` Boolean
@@ -213,13 +236,14 @@ completed.
 * `filter` Object (optional)
   * `urls` String[] - Array of URL patterns that will be used to filter out the
         requests that do not match the URL patterns.
-* `listener` Function
+* `listener` Function | null
   * `details` Object
     * `id` Integer
     * `url` String
     * `method` String
     * `webContentsId` Integer (optional)
     * `resourceType` String
+    * `referrer` String
     * `timestamp` Double
     * `fromCache` Boolean
     * `error` String - The error description.

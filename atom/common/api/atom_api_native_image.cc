@@ -4,7 +4,9 @@
 
 #include "atom/common/api/atom_api_native_image.h"
 
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "atom/common/asar/asar_util.h"
@@ -216,11 +218,11 @@ base::win::ScopedHICON ReadICOFromPath(int size, const base::FilePath& path) {
 
 bool ReadImageSkiaFromICO(gfx::ImageSkia* image, HICON icon) {
   // Convert the icon from the Windows specific HICON to gfx::ImageSkia.
-  std::unique_ptr<SkBitmap> bitmap(IconUtil::CreateSkBitmapFromHICON(icon));
-  if (!bitmap)
+  SkBitmap bitmap = IconUtil::CreateSkBitmapFromHICON(icon);
+  if (bitmap.isNull())
     return false;
 
-  image->AddRepresentation(gfx::ImageSkiaRep(*bitmap, 1.0f));
+  image->AddRepresentation(gfx::ImageSkiaRep(bitmap, 1.0f));
   return true;
 }
 #endif
@@ -268,15 +270,14 @@ HICON NativeImage::GetHICON(int size) {
 
   // First try loading the icon with specified size.
   if (!hicon_path_.empty()) {
-    hicons_[size] = std::move(ReadICOFromPath(size, hicon_path_));
+    hicons_[size] = ReadICOFromPath(size, hicon_path_);
     return hicons_[size].get();
   }
 
   // Then convert the image to ICO.
   if (image_.IsEmpty())
     return NULL;
-  hicons_[size] =
-      std::move(IconUtil::CreateHICONFromSkBitmap(image_.AsBitmap()));
+  hicons_[size] = IconUtil::CreateHICONFromSkBitmap(image_.AsBitmap());
   return hicons_[size].get();
 }
 #endif
@@ -295,7 +296,7 @@ v8::Local<v8::Value> NativeImage::ToPNG(mate::Arguments* args) {
   }
 
   const SkBitmap bitmap =
-      image_.AsImageSkia().GetRepresentation(scale_factor).sk_bitmap();
+      image_.AsImageSkia().GetRepresentation(scale_factor).GetBitmap();
   std::vector<unsigned char> encoded;
   gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, false, &encoded);
   const char* data = reinterpret_cast<char*>(encoded.data());
@@ -307,7 +308,7 @@ v8::Local<v8::Value> NativeImage::ToBitmap(mate::Arguments* args) {
   float scale_factor = GetScaleFactorFromOptions(args);
 
   const SkBitmap bitmap =
-      image_.AsImageSkia().GetRepresentation(scale_factor).sk_bitmap();
+      image_.AsImageSkia().GetRepresentation(scale_factor).GetBitmap();
   SkPixelRef* ref = bitmap.pixelRef();
   if (!ref)
     return node::Buffer::New(args->isolate(), 0).ToLocalChecked();
@@ -339,14 +340,14 @@ std::string NativeImage::ToDataURL(mate::Arguments* args) {
   }
 
   return webui::GetBitmapDataUrl(
-      image_.AsImageSkia().GetRepresentation(scale_factor).sk_bitmap());
+      image_.AsImageSkia().GetRepresentation(scale_factor).GetBitmap());
 }
 
 v8::Local<v8::Value> NativeImage::GetBitmap(mate::Arguments* args) {
   float scale_factor = GetScaleFactorFromOptions(args);
 
   const SkBitmap bitmap =
-      image_.AsImageSkia().GetRepresentation(scale_factor).sk_bitmap();
+      image_.AsImageSkia().GetRepresentation(scale_factor).GetBitmap();
   SkPixelRef* ref = bitmap.pixelRef();
   if (!ref)
     return node::Buffer::New(args->isolate(), 0).ToLocalChecked();
@@ -651,4 +652,4 @@ void Initialize(v8::Local<v8::Object> exports,
 
 }  // namespace
 
-NODE_BUILTIN_MODULE_CONTEXT_AWARE(atom_common_native_image, Initialize)
+NODE_LINKED_MODULE_CONTEXT_AWARE(atom_common_native_image, Initialize)

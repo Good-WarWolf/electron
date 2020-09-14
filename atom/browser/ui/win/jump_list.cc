@@ -83,7 +83,7 @@ bool ConvertShellLinkToJumpListItem(IShellLink* shell_link,
 
   item->type = JumpListItem::Type::TASK;
   wchar_t path[MAX_PATH];
-  if (FAILED(shell_link->GetPath(path, arraysize(path), nullptr, 0)))
+  if (FAILED(shell_link->GetPath(path, MAX_PATH, nullptr, 0)))
     return false;
 
   CComQIPtr<IPropertyStore> property_store = shell_link;
@@ -100,14 +100,13 @@ bool ConvertShellLinkToJumpListItem(IShellLink* shell_link,
   }
 
   int icon_index;
-  if (SUCCEEDED(
-          shell_link->GetIconLocation(path, arraysize(path), &icon_index))) {
+  if (SUCCEEDED(shell_link->GetIconLocation(path, MAX_PATH, &icon_index))) {
     item->icon_path = base::FilePath(path);
     item->icon_index = icon_index;
   }
 
   wchar_t item_desc[INFOTIPSIZE];
-  if (SUCCEEDED(shell_link->GetDescription(item_desc, arraysize(item_desc))))
+  if (SUCCEEDED(shell_link->GetDescription(item_desc, INFOTIPSIZE)))
     item->description = item_desc;
 
   return true;
@@ -144,9 +143,18 @@ void ConvertRemovedJumpListItems(IObjectArray* in,
 
 namespace atom {
 
+JumpListItem::JumpListItem() = default;
+JumpListItem::JumpListItem(const JumpListItem&) = default;
+JumpListItem::~JumpListItem() = default;
+JumpListCategory::JumpListCategory() = default;
+JumpListCategory::JumpListCategory(const JumpListCategory&) = default;
+JumpListCategory::~JumpListCategory() = default;
+
 JumpList::JumpList(const base::string16& app_id) : app_id_(app_id) {
   destinations_.CoCreateInstance(CLSID_DestinationList);
 }
+
+JumpList::~JumpList() = default;
 
 bool JumpList::Begin(int* min_items, std::vector<JumpListItem>* removed_items) {
   DCHECK(destinations_);
@@ -266,9 +274,9 @@ JumpListResult JumpList::AppendCategory(const JumpListCategory& category) {
         result = JumpListResult::GENERIC_ERROR;
     }
   } else {
-    auto hr = destinations_->AppendCategory(category.name.c_str(), items);
+    HRESULT hr = destinations_->AppendCategory(category.name.c_str(), items);
     if (FAILED(hr)) {
-      if (hr == 0x80040F03) {
+      if (hr == static_cast<HRESULT>(0x80040F03)) {
         LOG(ERROR) << "Failed to append custom category "
                    << "'" << category.name << "' "
                    << "to Jump List due to missing file type registration.";

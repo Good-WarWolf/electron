@@ -19,19 +19,12 @@
 #include "base/debug/leak_tracker.h"
 #endif
 
-namespace brightray {
-class RequireCTDelegate;
-}  // namespace brightray
-
-namespace net {
-class HttpAuthPreferences;
-class NetLog;
-}  // namespace net
-
 namespace atom {
 
 class AtomBrowserContext;
+class AtomNetworkDelegate;
 class AtomURLRequestJobFactory;
+class RequireCTDelegate;
 class ResourceContext;
 
 class URLRequestContextGetter : public net::URLRequestContextGetter {
@@ -49,6 +42,8 @@ class URLRequestContextGetter : public net::URLRequestContextGetter {
     return top_job_factory_.get();
   }
 
+  AtomNetworkDelegate* network_delegate() const { return network_delegate_; }
+
  private:
   friend class AtomBrowserContext;
 
@@ -65,6 +60,7 @@ class URLRequestContextGetter : public net::URLRequestContextGetter {
     content::ResourceContext* GetResourceContext();
     scoped_refptr<URLRequestContextGetter> GetMainRequestContextGetter();
     network::mojom::NetworkContextPtr GetNetworkContext();
+    network::mojom::NetworkContextParamsPtr CreateNetworkContextParams();
 
     void ShutdownOnUIThread();
 
@@ -89,7 +85,6 @@ class URLRequestContextGetter : public net::URLRequestContextGetter {
   };
 
   URLRequestContextGetter(
-      net::NetLog* net_log,
       URLRequestContextGetter::Handle* context_handle,
       content::ProtocolHandlerMap* protocol_handlers,
       content::URLRequestInterceptorScopedVector protocol_interceptors);
@@ -99,14 +94,13 @@ class URLRequestContextGetter : public net::URLRequestContextGetter {
   base::debug::LeakTracker<URLRequestContextGetter> leak_tracker_;
 #endif
 
-  std::unique_ptr<brightray::RequireCTDelegate> ct_delegate_;
+  std::unique_ptr<RequireCTDelegate> ct_delegate_;
   std::unique_ptr<AtomURLRequestJobFactory> top_job_factory_;
-  std::unique_ptr<net::HttpAuthPreferences> http_auth_preferences_;
   std::unique_ptr<network::mojom::NetworkContext> network_context_;
 
-  net::NetLog* net_log_;
   URLRequestContextGetter::Handle* context_handle_;
   net::URLRequestContext* url_request_context_;
+  AtomNetworkDelegate* network_delegate_;
   content::ProtocolHandlerMap protocol_handlers_;
   content::URLRequestInterceptorScopedVector protocol_interceptors_;
   bool context_shutting_down_;
